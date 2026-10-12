@@ -29,7 +29,7 @@ from sklearn.metrics import accuracy_score
 # FILE PATHS
 # --------------------------------------------------
 
-DATASET_PATH = "dataset/isl_landmarks.csv"
+DATASET_PATH = "dataset/isl_two_hand_landmarks.csv" if os.path.exists("dataset/isl_two_hand_landmarks.csv") else "dataset/isl_landmarks.csv"
 MODEL_PATH = "models/isl_model.keras"
 LABELS_PATH = "models/labels.npy"
 TEST_DATA_PATH = "results/test_data.npz"
@@ -45,8 +45,8 @@ LOSS_PLOT = "results/training_loss.png"
 def parse_args():
 
     dataset = DATASET_PATH
-    epochs = 50
-    batch_size = 32
+    epochs = 35
+    batch_size = 128
 
     i = 1
     while i < len(sys.argv):
@@ -69,7 +69,7 @@ def parse_args():
             print("Usage:")
             print("  python src/train_model.py")
             print("  python src/train_model.py --dataset path/to/data.csv")
-            print("  python src/train_model.py --epochs 50 --batch-size 32")
+            print("  python src/train_model.py --epochs 35 --batch-size 128")
             print()
             sys.exit(0)
         else:
@@ -275,38 +275,28 @@ def main():
     # --------------------------------------------------
 
     model = tf.keras.Sequential([
+        tf.keras.layers.Input(shape=(X.shape[1],)),
 
-        tf.keras.layers.Input(
-            shape=(63,)
-        ),
+        tf.keras.layers.Dense(256),
+        tf.keras.layers.BatchNormalization(),
+        tf.keras.layers.Activation("relu"),
+        tf.keras.layers.Dropout(0.25),
 
-        tf.keras.layers.Dense(
-            128,
-            activation="relu"
-        ),
+        tf.keras.layers.Dense(256),
+        tf.keras.layers.BatchNormalization(),
+        tf.keras.layers.Activation("relu"),
+        tf.keras.layers.Dropout(0.25),
 
-        tf.keras.layers.Dropout(
-            0.3
-        ),
+        tf.keras.layers.Dense(128),
+        tf.keras.layers.BatchNormalization(),
+        tf.keras.layers.Activation("relu"),
+        tf.keras.layers.Dropout(0.20),
 
-        tf.keras.layers.Dense(
-            64,
-            activation="relu"
-        ),
+        tf.keras.layers.Dense(64),
+        tf.keras.layers.BatchNormalization(),
+        tf.keras.layers.Activation("relu"),
 
-        tf.keras.layers.Dropout(
-            0.2
-        ),
-
-        tf.keras.layers.Dense(
-            32,
-            activation="relu"
-        ),
-
-        tf.keras.layers.Dense(
-            num_classes,
-            activation="softmax"
-        )
+        tf.keras.layers.Dense(num_classes, activation="softmax")
     ])
 
     # --------------------------------------------------
@@ -314,7 +304,7 @@ def main():
     # --------------------------------------------------
 
     model.compile(
-        optimizer="adam",
+        optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
         loss="sparse_categorical_crossentropy",
         metrics=["accuracy"]
     )
@@ -333,8 +323,16 @@ def main():
 
     early_stopping = tf.keras.callbacks.EarlyStopping(
         monitor="val_loss",
-        patience=5,
+        patience=8,
         restore_best_weights=True,
+        verbose=1
+    )
+
+    lr_scheduler = tf.keras.callbacks.ReduceLROnPlateau(
+        monitor="val_loss",
+        factor=0.5,
+        patience=3,
+        min_lr=1e-5,
         verbose=1
     )
 
@@ -345,7 +343,7 @@ def main():
         verbose=1
     )
 
-    callbacks = [early_stopping, model_checkpoint]
+    callbacks = [early_stopping, lr_scheduler, model_checkpoint]
 
     # --------------------------------------------------
     # TRAIN MODEL

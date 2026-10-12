@@ -12,7 +12,7 @@ Communication can be difficult for people who use sign language when interacting
 
 This project aims to provide a computer-vision-based system that can recognize Indian Sign Language alphabet gestures using a webcam.
 
-The system detects the user's hand, extracts **21 hand landmarks using MediaPipe**, converts them into numerical features, and uses a trained **TensorFlow/Keras neural network** to classify the gesture into one of the 26 alphabet classes.
+The system detects up to two hands, extracts **hand landmarks using MediaPipe (up to 42 landmarks / 126 features)**, converts them into wrist-relative normalized features, and uses a trained **TensorFlow/Keras neural network** with BatchNormalization to classify the gesture into one of the 26 alphabet classes with **99.85% accuracy**.
 
 ### System Workflow
 

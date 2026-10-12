@@ -140,9 +140,9 @@ class SpeechEngine:
 # ==================================================
 
 class HandDetector:
-    """MediaPipe hand landmark detector."""
+    """MediaPipe hand landmark detector supporting up to 2 hands."""
 
-    def __init__(self):
+    def __init__(self, num_hands=2):
         BaseOptions = mp.tasks.BaseOptions
         HandLandmarker = mp.tasks.vision.HandLandmarker
         HandLandmarkerOptions = mp.tasks.vision.HandLandmarkerOptions
@@ -153,7 +153,7 @@ class HandDetector:
                 model_asset_path=HAND_MODEL_PATH
             ),
             running_mode=RunningMode.VIDEO,
-            num_hands=1,
+            num_hands=num_hands,
             min_hand_detection_confidence=0.3,
             min_hand_presence_confidence=0.3,
             min_tracking_confidence=0.3
@@ -163,7 +163,7 @@ class HandDetector:
         self.start_time = time.monotonic()
 
     def detect(self, rgb_frame):
-        """Detect hand in frame. Returns landmarks or None."""
+        """Detect hands in frame. Returns MediaPipe result object."""
         mp_image = mp.Image(
             image_format=mp.ImageFormat.SRGB,
             data=rgb_frame
@@ -176,25 +176,19 @@ class HandDetector:
         result = self.detector.detect_for_video(
             mp_image, timestamp_ms
         )
-
-        if result.hand_landmarks:
-            return result.hand_landmarks[0]
-
-        return None
+        return result
 
     def close(self):
         self.detector.close()
 
 
 # ==================================================
-# LANDMARK NORMALIZER
+# LANDMARK NORMALIZERS
 # ==================================================
 
 def normalize_landmarks(hand_landmarks):
-    """Normalize hand landmarks using wrist as reference."""
-
+    """Normalize single hand landmarks using wrist as reference (63 features)."""
     landmarks = []
-
     wrist_x = hand_landmarks[0].x
     wrist_y = hand_landmarks[0].y
     wrist_z = hand_landmarks[0].z
@@ -206,13 +200,67 @@ def normalize_landmarks(hand_landmarks):
         landmarks.extend([x, y, z])
 
     landmarks = np.array(landmarks, dtype=np.float32)
-
     max_value = np.max(np.abs(landmarks))
-
     if max_value > 0:
         landmarks = landmarks / max_value
-
     return landmarks
+
+
+def normalize_two_hands(result):
+    """
+    Normalize up to 2 detected hands into 126 features matching the relative-coordinate training format.
+
+    - 0 hands: returns None.
+    - 1 hand: wrist-relative, scaled to [-1, 1], placed in Slot 1 (indices 0..62) with Slot 2 as 0.0s (63..125).
+    - 2+ hands:
+        * Deterministic screen-space sort:
+            Hand 1 = screen-left hand (smaller wrist x).
+            Hand 2 = screen-right hand (larger wrist x).
+        * Hand 1 centered at Hand 1 wrist (P1 - W1). Hand 1 wrist is at (0, 0, 0).
+        * Hand 2 centered relative to Hand 1 wrist (P2 - W1). Hand 2 wrist is at (W2 - W1).
+        * Joint scale: normalized by max absolute coordinate across all 126 features.
+    """
+    if not result or not result.hand_landmarks:
+        return None
+
+    num_hands = len(result.hand_landmarks)
+
+    if num_hands == 1:
+        h = result.hand_landmarks[0]
+        wx, wy, wz = h[0].x, h[0].y, h[0].z
+        coords = []
+        for lm in h:
+            coords.extend([lm.x - wx, lm.y - wy, lm.z - wz])
+        coords = np.array(coords, dtype=np.float32)
+        m = np.max(np.abs(coords))
+        if m > 0:
+            coords = coords / m
+        return np.concatenate([coords, np.zeros(63, dtype=np.float32)])
+
+    # 2 or more hands: sort by wrist x (screen-left vs screen-right)
+    hA = result.hand_landmarks[0]
+    hB = result.hand_landmarks[1]
+
+    if hA[0].x <= hB[0].x:
+        h1, h2 = hA, hB
+    else:
+        h1, h2 = hB, hA
+
+    w1x, w1y, w1z = h1[0].x, h1[0].y, h1[0].z
+
+    h1_coords = []
+    for lm in h1:
+        h1_coords.extend([lm.x - w1x, lm.y - w1y, lm.z - w1z])
+
+    h2_coords = []
+    for lm in h2:
+        h2_coords.extend([lm.x - w1x, lm.y - w1y, lm.z - w1z])
+
+    feat = np.array(h1_coords + h2_coords, dtype=np.float32)
+    m = np.max(np.abs(feat))
+    if m > 0:
+        feat = feat / m
+    return feat
 
 
 # ==================================================
@@ -229,7 +277,7 @@ HAND_CONNECTIONS = [
 ]
 
 
-def draw_hand(frame, hand_landmarks):
+def draw_hand(frame, hand_landmarks, line_color=(0, 255, 0)):
     """Draw hand landmarks and connections on frame."""
     height, width, _ = frame.shape
 
@@ -245,7 +293,7 @@ def draw_hand(frame, hand_landmarks):
             frame,
             points[start_idx],
             points[end_idx],
-            (0, 255, 0), 2
+            line_color, 2
         )
 
     # Draw landmarks
@@ -271,10 +319,13 @@ class ISLApp:
         print(f"Model loaded: {len(self.labels)} classes")
         print(f"Classes: {', '.join(self.labels)}")
 
+        self.expected_features = self.model.input_shape[1]
+        print(f"Model expects {self.expected_features} input features.")
+
         # --------------------------------------------------
         # INITIALIZE COMPONENTS
         # --------------------------------------------------
-        self.hand_detector = HandDetector()
+        self.hand_detector = HandDetector(num_hands=2 if self.expected_features == 126 else 1)
         self.speech = SpeechEngine()
 
         # --------------------------------------------------
@@ -729,38 +780,45 @@ class ISLApp:
         # Mirror
         frame = cv2.flip(frame, 1)
 
-        # Detect hand
+        # Detect hands
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        hand_landmarks = self.hand_detector.detect(rgb_frame)
+        detection_result = self.hand_detector.detect(rgb_frame)
 
-        if hand_landmarks:
+        if detection_result and detection_result.hand_landmarks:
             self.hand_detected = True
 
-            # Normalize and predict
-            features = normalize_landmarks(hand_landmarks)
-            features = features.reshape(1, 63)
-
-            prediction = self.model.predict(features, verbose=0)
-            predicted_index = np.argmax(prediction[0])
-            self.confidence = float(prediction[0][predicted_index])
-
-            current_label = str(self.labels[predicted_index])
-
-            # Confidence filter + smoothing
-            if self.confidence >= self.CONFIDENCE_THRESHOLD:
-                self.prediction_history.append(current_label)
-                self.predicted_label = Counter(
-                    self.prediction_history
-                ).most_common(1)[0][0]
+            # Extract features according to model requirements
+            if self.expected_features == 126:
+                features = normalize_two_hands(detection_result)
+                if features is not None:
+                    features = features.reshape(1, 126)
             else:
-                self.prediction_history.clear()
-                self.predicted_label = "..."
+                features = normalize_landmarks(detection_result.hand_landmarks[0])
+                features = features.reshape(1, 63)
 
-            # Letter confirmation (auto-confirm)
-            self._process_confirmation()
+            if features is not None:
+                prediction = self.model.predict(features, verbose=0)
+                predicted_index = np.argmax(prediction[0])
+                self.confidence = float(prediction[0][predicted_index])
+                current_label = str(self.labels[predicted_index])
 
-            # Draw hand on frame
-            draw_hand(frame, hand_landmarks)
+                # Confidence filter + smoothing
+                if self.confidence >= self.CONFIDENCE_THRESHOLD:
+                    self.prediction_history.append(current_label)
+                    self.predicted_label = Counter(
+                        self.prediction_history
+                    ).most_common(1)[0][0]
+                else:
+                    self.prediction_history.clear()
+                    self.predicted_label = "..."
+
+                # Letter confirmation (auto-confirm)
+                self._process_confirmation()
+
+            # Draw all hands on frame
+            for hand_idx, lms in enumerate(detection_result.hand_landmarks):
+                line_c = (0, 255, 0) if hand_idx == 0 else (255, 200, 0)
+                draw_hand(frame, lms, line_color=line_c)
 
         else:
             self.hand_detected = False
