@@ -12,6 +12,20 @@ Requirements:
     - Hand landmarker at models/hand_landmarker.task
     - Labels at models/labels.npy
 """
+import sys
+import os
+import subprocess
+
+# Auto-redirect to venv python if run with global python
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+_root_dir = os.path.dirname(_script_dir)
+_venv_python = os.path.join(_root_dir, "venv", "Scripts", "python.exe")
+
+if os.path.exists(_venv_python):
+    _curr = os.path.normcase(os.path.abspath(sys.executable))
+    _target = os.path.normcase(os.path.abspath(_venv_python))
+    if _curr != _target:
+        sys.exit(subprocess.run([_venv_python] + sys.argv).returncode)
 
 import cv2
 import mediapipe as mp
@@ -285,6 +299,13 @@ class ISLApp:
         self.last_confirmed_label = None
 
         # Camera
+        self.camera_index = 0
+        for i, a in enumerate(sys.argv):
+            if a in ("--camera", "-c") and i + 1 < len(sys.argv):
+                try:
+                    self.camera_index = int(sys.argv[i + 1])
+                except ValueError:
+                    pass
         self.camera = None
         self.running = False
 
@@ -304,6 +325,12 @@ class ISLApp:
         self.root.title("Indian Sign Language Recognition System")
         self.root.configure(bg="#1a1a2e")
         self.root.resizable(False, False)
+
+        # Bring window to front
+        self.root.lift()
+        self.root.attributes('-topmost', True)
+        self.root.after(1000, lambda: self.root.attributes('-topmost', False))
+        self.root.focus_force()
 
         # Fonts
         title_font = ("Segoe UI", 16, "bold")
@@ -356,21 +383,44 @@ class ISLApp:
         left_frame = tk.Frame(main_frame, bg=panel_color, padx=5, pady=5)
         left_frame.pack(side="left", padx=(0, 10))
 
+        cam_header = tk.Frame(left_frame, bg=panel_color)
+        cam_header.pack(fill="x", pady=(5, 5))
+
         tk.Label(
-            left_frame,
+            cam_header,
             text="📷 LIVE CAMERA",
             font=heading_font,
             bg=panel_color,
             fg=highlight_color
-        ).pack(pady=(5, 5))
+        ).pack(side="left", padx=5)
+
+        self.cam_switch_btn = tk.Button(
+            cam_header,
+            text=f"🔄 Switch Camera ({self.camera_index})",
+            font=small_font,
+            bg=btn_color,
+            fg="white",
+            activebackground=btn_hover,
+            activeforeground="white",
+            relief="flat",
+            padx=8, pady=2,
+            command=self.switch_camera
+        )
+        self.cam_switch_btn.pack(side="right", padx=5)
+
+        # Camera display container fixed to 640x480 pixels
+        cam_container = tk.Frame(left_frame, width=640, height=480, bg="black")
+        cam_container.pack_propagate(False)
+        cam_container.pack()
 
         self.camera_label = tk.Label(
-            left_frame,
+            cam_container,
+            text="Waiting for camera...",
+            font=label_font,
             bg="black",
-            width=640,
-            height=480
+            fg="#888"
         )
-        self.camera_label.pack()
+        self.camera_label.pack(fill="both", expand=True)
 
         # --------------------------------------------------
         # RIGHT PANEL
@@ -815,6 +865,49 @@ class ISLApp:
     # RUN
     # ==================================================
 
+    def _open_camera(self, target_idx=None):
+        """Open camera with fallback options and hardware warmup."""
+        target = self.camera_index if target_idx is None else target_idx
+        alt = 1 if target == 0 else 0
+        candidates = [
+            (None, target),                            # Default backend first (Bright RGB camera on ASUS!)
+            (cv2.CAP_DSHOW, 1 if target == 0 else 0),  # DSHOW index 1 is also RGB
+            (cv2.CAP_DSHOW, target),
+            (None, alt),
+        ]
+        for backend, idx in candidates:
+            backend_str = "DSHOW" if backend is not None else "DEFAULT"
+            if backend is not None:
+                cap = cv2.VideoCapture(idx, backend)
+            else:
+                cap = cv2.VideoCapture(idx)
+
+            if cap and cap.isOpened():
+                for attempt in range(12):
+                    ret, frame = cap.read()
+                    if ret and frame is not None and frame.size > 0:
+                        print(f"Camera successfully opened (index {idx} [{backend_str}], {frame.shape[1]}x{frame.shape[0]})")
+                        return cap
+                    time.sleep(0.08)
+                cap.release()
+        return None
+
+    def switch_camera(self):
+        """Switch between camera 0 and camera 1 on the fly."""
+        new_idx = 1 if self.camera_index == 0 else 0
+        print(f"Switching camera from {self.camera_index} to {new_idx}...")
+        if self.camera:
+            self.camera.release()
+        new_cam = self._open_camera(new_idx)
+        if new_cam:
+            self.camera = new_cam
+            self.camera_index = new_idx
+            self.cam_switch_btn.config(text=f"🔄 Switch Camera ({self.camera_index})")
+            print(f"Switched to camera {self.camera_index}")
+        else:
+            print(f"Failed to switch to camera {new_idx}, restoring {self.camera_index}")
+            self.camera = self._open_camera(self.camera_index)
+
     def run(self):
         """Start the application."""
         print()
@@ -824,16 +917,17 @@ class ISLApp:
         print()
 
         # Open camera
-        self.camera = cv2.VideoCapture(0)
+        print("Opening webcam...")
+        self.camera = self._open_camera()
 
-        if not self.camera.isOpened():
+        if not self.camera:
             messagebox.showerror(
                 "Camera Error",
                 "Could not open webcam.\n\n"
                 "Please check:\n"
                 "- Camera is connected\n"
-                "- Camera is not used by another app\n"
-                "- Camera drivers are installed"
+                "- Windows camera permissions allow desktop apps\n"
+                "- Camera is not in use by another app"
             )
             return
 

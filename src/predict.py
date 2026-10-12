@@ -7,6 +7,20 @@ For the full GUI application, use: python src/app.py
 Usage:
     python src/predict.py
 """
+import sys
+import os
+import subprocess
+
+# Auto-redirect to venv python if run with global python
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+_root_dir = os.path.dirname(_script_dir)
+_venv_python = os.path.join(_root_dir, "venv", "Scripts", "python.exe")
+
+if os.path.exists(_venv_python):
+    _curr = os.path.normcase(os.path.abspath(sys.executable))
+    _target = os.path.normcase(os.path.abspath(_venv_python))
+    if _curr != _target:
+        sys.exit(subprocess.run([_venv_python] + sys.argv).returncode)
 
 import cv2
 import mediapipe as mp
@@ -129,13 +143,43 @@ def normalize_landmarks(hand_landmarks):
 # CAMERA
 # ==================================================
 
-camera = cv2.VideoCapture(0)
+# Determine camera index
+camera_idx = 0
+for i, a in enumerate(sys.argv):
+    if a in ("--camera", "-c") and i + 1 < len(sys.argv):
+        try:
+            camera_idx = int(sys.argv[i + 1])
+        except ValueError:
+            pass
 
-if not camera.isOpened():
+def open_camera(target_idx=0):
+    candidates = [
+        (None, target_idx),                            # Default backend first (Bright RGB camera on ASUS!)
+        (cv2.CAP_DSHOW, 1 if target_idx == 0 else 0),  # DSHOW index 1 is also RGB
+        (cv2.CAP_DSHOW, target_idx),
+        (None, 1 if target_idx == 0 else 0),
+    ]
+    for backend, idx in candidates:
+        backend_str = "DSHOW" if backend is not None else "DEFAULT"
+        if backend is not None:
+            cap = cv2.VideoCapture(idx, backend)
+        else:
+            cap = cv2.VideoCapture(idx)
 
-    print("ERROR: Could not open camera.")
+        if cap and cap.isOpened():
+            for attempt in range(12):
+                ret, frame = cap.read()
+                if ret and frame is not None and frame.size > 0:
+                    print(f"Camera opened successfully: device {idx} [{backend_str}] ({frame.shape[1]}x{frame.shape[0]})")
+                    return cap, idx
+                time.sleep(0.08)
+            cap.release()
+    return None, target_idx
 
-    exit()
+camera, current_camera_idx = open_camera(camera_idx)
+if not camera:
+    print("ERROR: Could not open camera. Please check camera connections and permissions.")
+    sys.exit(1)
 
 
 # ==================================================
@@ -197,15 +241,25 @@ print()
 print("Auto-confirm: Hold a sign steady to auto-add it.")
 print()
 
+WINDOW_NAME = "Indian Sign Language Recognition"
+cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
+cv2.resizeWindow(WINDOW_NAME, 960, 720)
+
 while True:
+
+    # Check if window was closed via [X] button
+    try:
+        if cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE) < 1:
+            print("Window closed.")
+            break
+    except Exception:
+        pass
 
     success, frame = camera.read()
 
-    if not success:
-
-        print("Could not read camera frame.")
-
-        break
+    if not success or frame is None or frame.size == 0:
+        time.sleep(0.02)
+        continue
 
 
     # --------------------------------------------------
@@ -520,6 +574,18 @@ while True:
     elif key == ord("c"):
         text_buffer = ""
         print("Text cleared.")
+
+    # SWITCH CAMERA
+    elif key == ord("s"):
+        new_idx = 1 if current_camera_idx == 0 else 0
+        print(f"Switching to camera {new_idx}...")
+        camera.release()
+        new_cam, new_idx = open_camera(new_idx)
+        if new_cam:
+            camera = new_cam
+            current_camera_idx = new_idx
+        else:
+            camera, current_camera_idx = open_camera(current_camera_idx)
 
     # QUIT
     elif key == ord("q"):
