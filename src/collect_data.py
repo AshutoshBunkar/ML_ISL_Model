@@ -265,9 +265,10 @@ def main():
     existing_counts = count_existing_samples()
 
     # Start camera
-    camera = cv2.VideoCapture(0)
+    from camera_utils import open_best_camera
+    camera, _ = open_best_camera(preferred_idx=0)
 
-    if not camera.isOpened():
+    if not camera:
         print("ERROR: Could not open camera.")
         return
 

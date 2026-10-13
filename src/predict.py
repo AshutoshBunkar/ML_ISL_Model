@@ -185,34 +185,12 @@ for i, a in enumerate(sys.argv):
         except ValueError:
             pass
 
-def open_camera(target_idx=0):
-    candidates = [
-        (None, target_idx),                            # Default backend first (Bright RGB camera on ASUS!)
-        (cv2.CAP_DSHOW, 1 if target_idx == 0 else 0),  # DSHOW index 1 is also RGB
-        (cv2.CAP_DSHOW, target_idx),
-        (None, 1 if target_idx == 0 else 0),
-    ]
-    for backend, idx in candidates:
-        backend_str = "DSHOW" if backend is not None else "DEFAULT"
-        if backend is not None:
-            cap = cv2.VideoCapture(idx, backend)
-        else:
-            cap = cv2.VideoCapture(idx)
-
-        if cap and cap.isOpened():
-            for attempt in range(12):
-                ret, frame = cap.read()
-                if ret and frame is not None and frame.size > 0:
-                    print(f"Camera opened successfully: device {idx} [{backend_str}] ({frame.shape[1]}x{frame.shape[0]})")
-                    return cap, idx
-                time.sleep(0.08)
-            cap.release()
-    return None, target_idx
-
-camera, current_camera_idx = open_camera(camera_idx)
+from camera_utils import open_best_camera
+camera, active_cam_info = open_best_camera(preferred_idx=camera_idx)
 if not camera:
     print("ERROR: Could not open camera. Please check camera connections and permissions.")
     sys.exit(1)
+current_camera_idx = active_cam_info["index"]
 
 
 # ==================================================
@@ -504,8 +482,20 @@ while True:
     )
 
     # Status
-    status = "Hand Detected" if hand_detected else "Show your hand"
-    status_color = (0, 255, 0) if hand_detected else (0, 0, 255)
+    if float(np.mean(frame)) < 0.5:
+        status = "⚠️ SHUTTER CLOSED (Open slider / Fn+F10)"
+        status_color = (0, 165, 255)
+        cv2.putText(
+            frame, "WEBCAM LENS SHUTTER APPEARS CLOSED",
+            (15, 310), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2
+        )
+        cv2.putText(
+            frame, "Slide open the physical privacy cover on your laptop bezel or press Fn+F10",
+            (15, 340), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (220, 220, 220), 1
+        )
+    else:
+        status = "Hand Detected" if hand_detected else "Show your hand"
+        status_color = (0, 255, 0) if hand_detected else (0, 0, 255)
     cv2.putText(
         frame, f"Status: {status}",
         (15, 135), cv2.FONT_HERSHEY_SIMPLEX,

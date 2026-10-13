@@ -25,7 +25,9 @@ options = HandLandmarkerOptions(
 detector = HandLandmarker.create_from_options(options)
 
 # Open the webcam
-camera = cv2.VideoCapture(0)
+camera = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+if not camera.isOpened():
+    camera = cv2.VideoCapture(0)
 
 # Used to create timestamps for MediaPipe
 start_time = time.monotonic()

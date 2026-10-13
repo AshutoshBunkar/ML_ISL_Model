@@ -74,7 +74,7 @@ def show_gui_launcher():
     cam_var = tk.IntVar(value=0)
 
     rb0 = tk.Radiobutton(
-        cam_card, text="Camera 0  (Primary Built-in RGB Webcam - Recommended)",
+        cam_card, text="Camera 0  (Physical Built-in HD WebCam - Recommended)",
         variable=cam_var, value=0,
         font=("Segoe UI", 9), fg="#ffffff", bg="#16213e",
         selectcolor="#0f3460", activebackground="#16213e", activeforeground="#00d4ff"
@@ -82,7 +82,7 @@ def show_gui_launcher():
     rb0.pack(anchor="w", pady=2)
 
     rb1 = tk.Radiobutton(
-        cam_card, text="Camera 1  (Secondary / External Sensor)",
+        cam_card, text="Camera 1  (Secondary / Smart Connect Camera)",
         variable=cam_var, value=1,
         font=("Segoe UI", 9), fg="#ffffff", bg="#16213e",
         selectcolor="#0f3460", activebackground="#16213e", activeforeground="#00d4ff"

@@ -1,16 +1,26 @@
 """
 Indian Sign Language Recognition System - Main Application
 
-Complete ISL alphabet recognition with GUI, text formation,
-and text-to-speech support.
+Features:
+- Robust multi-backend camera support (DirectShow & Media Foundation) with auto-detection
+- Real-time 1-hand and 2-hand ISL alphabet recognition via MediaPipe + Deep Learning
+- Comprehensive text editing options:
+    * Delete Letter (Backspace)
+    * Delete Word
+    * Clear All Text with Undo
+    * Direct in-place editing in text area
+- All necessary GUI options:
+    * Camera switcher & rescan dropdown
+    * Mirror feed toggle
+    * Hand skeleton / landmarks toggle
+    * Pause / Resume recognition toggle
+    * Confidence threshold & Hold duration sliders
+    * Copy to Clipboard & Save to file
+    * Text-to-Speech (TTS)
+    * Interactive ISL Gesture Guide modal
 
 Usage:
-    python src/app.py
-
-Requirements:
-    - Trained model at models/isl_model.keras
-    - Hand landmarker at models/hand_landmarker.task
-    - Labels at models/labels.npy
+    python src/app.py [--camera <index>]
 """
 import sys
 import os
@@ -34,11 +44,13 @@ import numpy as np
 import time
 import threading
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import ttk, messagebox
 from collections import deque, Counter
 from PIL import Image, ImageTk
-import os
-import sys
+
+# Camera utils
+sys.path.insert(0, _script_dir)
+from camera_utils import probe_all_cameras, open_best_camera
 
 
 # ==================================================
@@ -50,41 +62,27 @@ HAND_MODEL_PATH = "models/hand_landmarker.task"
 LABELS_PATH = "models/labels.npy"
 
 
-# ==================================================
-# CHECK FILES
-# ==================================================
-
 def check_files():
-    """Check that all required files exist."""
+    """Check that all required model assets exist."""
     missing = []
-
-    if not os.path.exists(MODEL_PATH):
-        missing.append(MODEL_PATH)
-
-    if not os.path.exists(HAND_MODEL_PATH):
-        missing.append(HAND_MODEL_PATH)
-
-    if not os.path.exists(LABELS_PATH):
-        missing.append(LABELS_PATH)
+    for f in [MODEL_PATH, HAND_MODEL_PATH, LABELS_PATH]:
+        if not os.path.exists(f):
+            missing.append(f)
 
     if missing:
-        print()
-        print("ERROR: Required files missing:")
+        print("\nERROR: Required files missing:")
         for f in missing:
             print(f"  - {f}")
-        print()
-        print("Please train the model first:")
-        print("  python src/train_model.py")
-        print()
+        print("\nPlease train the model or ensure files are in place.\n")
         sys.exit(1)
 
 
 # ==================================================
-# TEXT-TO-SPEECH
+# TEXT-TO-SPEECH ENGINE
 # ==================================================
 
 class SpeechEngine:
-    """Thread-safe text-to-speech using pyttsx3."""
+    """Thread-safe text-to-speech engine using pyttsx3."""
 
     def __init__(self):
         self.available = False
@@ -117,10 +115,8 @@ class SpeechEngine:
         thread.start()
 
     def _speak_thread(self, text):
-        """Background speech thread."""
         try:
             self.speaking = True
-
             import pyttsx3
             engine = pyttsx3.init()
             engine.setProperty("rate", 150)
@@ -128,7 +124,6 @@ class SpeechEngine:
             engine.say(text)
             engine.runAndWait()
             engine.stop()
-
         except Exception as e:
             print(f"Speech error: {e}")
         finally:
@@ -149,9 +144,7 @@ class HandDetector:
         RunningMode = mp.tasks.vision.RunningMode
 
         options = HandLandmarkerOptions(
-            base_options=BaseOptions(
-                model_asset_path=HAND_MODEL_PATH
-            ),
+            base_options=BaseOptions(model_asset_path=HAND_MODEL_PATH),
             running_mode=RunningMode.VIDEO,
             num_hands=num_hands,
             min_hand_detection_confidence=0.3,
@@ -161,22 +154,19 @@ class HandDetector:
 
         self.detector = HandLandmarker.create_from_options(options)
         self.start_time = time.monotonic()
+        self.last_timestamp_ms = 0
 
     def detect(self, rgb_frame):
-        """Detect hands in frame. Returns MediaPipe result object."""
+        """Detect hands in frame with strictly increasing timestamp."""
         mp_image = mp.Image(
             image_format=mp.ImageFormat.SRGB,
             data=rgb_frame
         )
-
-        timestamp_ms = int(
-            (time.monotonic() - self.start_time) * 1000
-        )
-
-        result = self.detector.detect_for_video(
-            mp_image, timestamp_ms
-        )
-        return result
+        now_ms = int((time.monotonic() - self.start_time) * 1000)
+        if now_ms <= self.last_timestamp_ms:
+            now_ms = self.last_timestamp_ms + 1
+        self.last_timestamp_ms = now_ms
+        return self.detector.detect_for_video(mp_image, now_ms)
 
     def close(self):
         self.detector.close()
@@ -194,10 +184,11 @@ def normalize_landmarks(hand_landmarks):
     wrist_z = hand_landmarks[0].z
 
     for landmark in hand_landmarks:
-        x = landmark.x - wrist_x
-        y = landmark.y - wrist_y
-        z = landmark.z - wrist_z
-        landmarks.extend([x, y, z])
+        landmarks.extend([
+            landmark.x - wrist_x,
+            landmark.y - wrist_y,
+            landmark.z - wrist_z
+        ])
 
     landmarks = np.array(landmarks, dtype=np.float32)
     max_value = np.max(np.abs(landmarks))
@@ -207,19 +198,7 @@ def normalize_landmarks(hand_landmarks):
 
 
 def normalize_two_hands(result):
-    """
-    Normalize up to 2 detected hands into 126 features matching the relative-coordinate training format.
-
-    - 0 hands: returns None.
-    - 1 hand: wrist-relative, scaled to [-1, 1], placed in Slot 1 (indices 0..62) with Slot 2 as 0.0s (63..125).
-    - 2+ hands:
-        * Deterministic screen-space sort:
-            Hand 1 = screen-left hand (smaller wrist x).
-            Hand 2 = screen-right hand (larger wrist x).
-        * Hand 1 centered at Hand 1 wrist (P1 - W1). Hand 1 wrist is at (0, 0, 0).
-        * Hand 2 centered relative to Hand 1 wrist (P2 - W1). Hand 2 wrist is at (W2 - W1).
-        * Joint scale: normalized by max absolute coordinate across all 126 features.
-    """
+    """Normalize up to 2 detected hands into 126 features."""
     if not result or not result.hand_landmarks:
         return None
 
@@ -237,7 +216,7 @@ def normalize_two_hands(result):
             coords = coords / m
         return np.concatenate([coords, np.zeros(63, dtype=np.float32)])
 
-    # 2 or more hands: sort by wrist x (screen-left vs screen-right)
+    # 2 hands: sort by wrist x (screen-left vs screen-right)
     hA = result.hand_landmarks[0]
     hB = result.hand_landmarks[1]
 
@@ -263,10 +242,6 @@ def normalize_two_hands(result):
     return feat
 
 
-# ==================================================
-# DRAW HAND
-# ==================================================
-
 HAND_CONNECTIONS = [
     (0,1),(1,2),(2,3),(3,4),
     (0,5),(5,6),(6,7),(7,8),
@@ -278,618 +253,933 @@ HAND_CONNECTIONS = [
 
 
 def draw_hand(frame, hand_landmarks, line_color=(0, 255, 0)):
-    """Draw hand landmarks and connections on frame."""
+    """Draw hand landmarks and skeleton on frame."""
     height, width, _ = frame.shape
-
     points = []
     for lm in hand_landmarks:
-        x = int(lm.x * width)
-        y = int(lm.y * height)
-        points.append((x, y))
+        points.append((int(lm.x * width), int(lm.y * height)))
 
-    # Draw connections
     for start_idx, end_idx in HAND_CONNECTIONS:
-        cv2.line(
-            frame,
-            points[start_idx],
-            points[end_idx],
-            line_color, 2
-        )
+        cv2.line(frame, points[start_idx], points[end_idx], line_color, 2)
 
-    # Draw landmarks
     for i, (x, y) in enumerate(points):
         color = (0, 0, 255) if i == 0 else (255, 0, 0)
-        cv2.circle(frame, (x, y), 5, color, -1)
+        cv2.circle(frame, (x, y), 4, color, -1)
 
 
 # ==================================================
-# MAIN APPLICATION
+# MAIN APPLICATION CLASS
 # ==================================================
 
 class ISLApp:
-    """Main ISL Recognition Application."""
+    """Main Indian Sign Language Recognition Application."""
 
     def __init__(self):
-        # --------------------------------------------------
-        # LOAD MODEL
-        # --------------------------------------------------
         print("Loading AI model...")
         self.model = tf.keras.models.load_model(MODEL_PATH)
         self.labels = np.load(LABELS_PATH, allow_pickle=True)
-        print(f"Model loaded: {len(self.labels)} classes")
-        print(f"Classes: {', '.join(self.labels)}")
+        print(f"Model loaded: {len(self.labels)} classes: {', '.join(self.labels)}")
 
         self.expected_features = self.model.input_shape[1]
         print(f"Model expects {self.expected_features} input features.")
 
-        # --------------------------------------------------
-        # INITIALIZE COMPONENTS
-        # --------------------------------------------------
         self.hand_detector = HandDetector(num_hands=2 if self.expected_features == 126 else 1)
         self.speech = SpeechEngine()
 
-        # --------------------------------------------------
-        # STATE
-        # --------------------------------------------------
+        # State
         self.text_buffer = ""
+        self.undo_stack = []
+        self._updating_display = False
         self.predicted_label = "..."
         self.confidence = 0.0
         self.hand_detected = False
+        self.num_hands_detected = 0
 
-        # Prediction smoothing
+        # Prediction smoothing & confirmation
         self.prediction_history = deque(maxlen=10)
-        self.CONFIDENCE_THRESHOLD = 0.70
-
-        # Letter confirmation system
-        self.CONFIRM_FRAMES = 15
-        self.COOLDOWN_FRAMES = 20
         self.stable_count = 0
         self.last_stable_label = None
         self.cooldown_counter = 0
+        self.COOLDOWN_FRAMES = 20
         self.need_change_before_repeat = False
-        self.last_confirmed_label = None
 
         # Camera
-        self.camera_index = 0
+        self.preferred_camera_idx = 0
         for i, a in enumerate(sys.argv):
             if a in ("--camera", "-c") and i + 1 < len(sys.argv):
                 try:
-                    self.camera_index = int(sys.argv[i + 1])
+                    self.preferred_camera_idx = int(sys.argv[i + 1])
                 except ValueError:
                     pass
+
         self.camera = None
+        self.active_camera_info = None
+        self.probed_cameras = []
         self.running = False
 
-        # --------------------------------------------------
-        # CREATE GUI
-        # --------------------------------------------------
+        # FPS calculation
+        self.prev_frame_time = time.time()
+        self.fps_list = deque(maxlen=20)
+        self.current_fps = 0.0
+
+        # Create GUI
         self._create_gui()
 
     # ==================================================
-    # GUI
+    # GUI CREATION
     # ==================================================
 
     def _create_gui(self):
-        """Create the Tkinter GUI."""
-
+        """Construct the Tkinter interface with complete controls."""
         self.root = tk.Tk()
         self.root.title("Indian Sign Language Recognition System")
-        self.root.configure(bg="#1a1a2e")
+        self.root.configure(bg="#121826")
         self.root.resizable(False, False)
 
         # Bring window to front
         self.root.lift()
         self.root.attributes('-topmost', True)
-        self.root.after(1000, lambda: self.root.attributes('-topmost', False))
+        self.root.after(800, lambda: self.root.attributes('-topmost', False))
         self.root.focus_force()
 
         # Fonts
-        title_font = ("Segoe UI", 16, "bold")
-        heading_font = ("Segoe UI", 12, "bold")
-        label_font = ("Segoe UI", 11)
+        title_font = ("Segoe UI", 14, "bold")
+        heading_font = ("Segoe UI", 11, "bold")
+        label_font = ("Segoe UI", 10)
         text_font = ("Consolas", 14)
-        button_font = ("Segoe UI", 10, "bold")
-        small_font = ("Segoe UI", 9)
+        btn_font = ("Segoe UI", 9, "bold")
+        small_font = ("Segoe UI", 8)
 
-        # Colors
-        bg_color = "#1a1a2e"
-        panel_color = "#16213e"
-        accent_color = "#0f3460"
-        text_color = "#e0e0e0"
-        highlight_color = "#00d4ff"
-        success_color = "#00e676"
-        warning_color = "#ffd600"
-        btn_color = "#0f3460"
-        btn_hover = "#1a4a8a"
+        # Color tokens
+        bg_dark = "#121826"
+        card_bg = "#1a2234"
+        accent_blue = "#0f3460"
+        highlight_cyan = "#00d4ff"
+        success_green = "#00e676"
+        warning_yellow = "#ffd600"
+        danger_red = "#ff4757"
+        text_light = "#f1f2f6"
 
         # --------------------------------------------------
-        # TITLE BAR
+        # TOP HEADER
         # --------------------------------------------------
+        header_frame = tk.Frame(self.root, bg=accent_blue, padx=15, pady=8)
+        header_frame.pack(fill="x")
 
-        title_frame = tk.Frame(
-            self.root, bg=accent_color,
-            padx=15, pady=10
-        )
-        title_frame.pack(fill="x")
-
-        tk.Label(
-            title_frame,
-            text="🤟  INDIAN SIGN LANGUAGE RECOGNITION SYSTEM",
+        title_lbl = tk.Label(
+            header_frame,
+            text="🤟 INDIAN SIGN LANGUAGE RECOGNITION SYSTEM",
             font=title_font,
-            bg=accent_color,
-            fg="white"
-        ).pack()
+            fg="white",
+            bg=accent_blue
+        )
+        title_lbl.pack(side="left")
 
-        # --------------------------------------------------
-        # MAIN CONTAINER
-        # --------------------------------------------------
-
-        main_frame = tk.Frame(self.root, bg=bg_color, padx=10, pady=10)
-        main_frame.pack(fill="both", expand=True)
-
-        # --------------------------------------------------
-        # LEFT PANEL - CAMERA
-        # --------------------------------------------------
-
-        left_frame = tk.Frame(main_frame, bg=panel_color, padx=5, pady=5)
-        left_frame.pack(side="left", padx=(0, 10))
-
-        cam_header = tk.Frame(left_frame, bg=panel_color)
-        cam_header.pack(fill="x", pady=(5, 5))
+        # Camera selection dropdown in header
+        cam_sel_frame = tk.Frame(header_frame, bg=accent_blue)
+        cam_sel_frame.pack(side="right")
 
         tk.Label(
-            cam_header,
-            text="📷 LIVE CAMERA",
-            font=heading_font,
-            bg=panel_color,
-            fg=highlight_color
-        ).pack(side="left", padx=5)
+            cam_sel_frame, text="Camera:", font=small_font, fg="#cbd5e1", bg=accent_blue
+        ).pack(side="left", padx=(0, 4))
 
-        self.cam_switch_btn = tk.Button(
-            cam_header,
-            text=f"🔄 Switch Camera ({self.camera_index})",
-            font=small_font,
-            bg=btn_color,
-            fg="white",
-            activebackground=btn_hover,
-            activeforeground="white",
-            relief="flat",
-            padx=8, pady=2,
-            command=self.switch_camera
+        self.cam_combo_var = tk.StringVar()
+        self.cam_combobox = ttk.Combobox(
+            cam_sel_frame,
+            textvariable=self.cam_combo_var,
+            state="readonly",
+            width=28,
+            font=("Segoe UI", 8)
         )
-        self.cam_switch_btn.pack(side="right", padx=5)
+        self.cam_combobox.pack(side="left", padx=(0, 5))
+        self.cam_combobox.bind("<<ComboboxSelected>>", self._on_camera_selected)
 
-        # Camera display container fixed to 640x480 pixels
-        cam_container = tk.Frame(left_frame, width=640, height=480, bg="black")
-        cam_container.pack_propagate(False)
-        cam_container.pack()
+        self.btn_rescan_cam = tk.Button(
+            cam_sel_frame,
+            text="🔄 Rescan",
+            font=small_font,
+            bg="#16213e",
+            fg="white",
+            activebackground="#00d4ff",
+            relief="flat",
+            padx=6, pady=2,
+            cursor="hand2",
+            command=self.rescan_cameras
+        )
+        self.btn_rescan_cam.pack(side="left")
+
+        # --------------------------------------------------
+        # MAIN BODY (2 COLUMNS)
+        # --------------------------------------------------
+        body = tk.Frame(self.root, bg=bg_dark, padx=12, pady=10)
+        body.pack(fill="both", expand=True)
+
+        # ==================================================
+        # LEFT COLUMN: CAMERA & VIDEO OPTIONS
+        # ==================================================
+        left_col = tk.Frame(body, bg=bg_dark)
+        left_col.pack(side="left", padx=(0, 10))
+
+        # Camera viewport container
+        cam_card = tk.LabelFrame(
+            left_col, text="  Live Video Feed  ",
+            font=heading_font, fg=highlight_cyan, bg=card_bg,
+            padx=6, pady=6, bd=1, relief="solid"
+        )
+        cam_card.pack(fill="x")
+
+        # Fixed 640x480 video canvas
+        cam_box = tk.Frame(cam_card, width=640, height=480, bg="#050811")
+        cam_box.pack_propagate(False)
+        cam_box.pack()
 
         self.camera_label = tk.Label(
-            cam_container,
-            text="Waiting for camera...",
+            cam_box,
+            text="Initializing webcam feed...",
             font=label_font,
-            bg="black",
-            fg="#888"
+            bg="#050811",
+            fg="#94a3b8"
         )
         self.camera_label.pack(fill="both", expand=True)
 
-        # --------------------------------------------------
-        # RIGHT PANEL
-        # --------------------------------------------------
+        # Video Options Toolbar underneath camera
+        opts_frame = tk.Frame(cam_card, bg=card_bg, pady=5)
+        opts_frame.pack(fill="x")
 
-        right_frame = tk.Frame(
-            main_frame, bg=panel_color,
-            padx=15, pady=15, width=320
+        self.var_mirror = tk.BooleanVar(value=True)
+        cb_mirror = tk.Checkbutton(
+            opts_frame, text="Mirror Video (Flip)",
+            variable=self.var_mirror,
+            font=small_font, fg=text_light, bg=card_bg,
+            selectcolor="#0f3460", activebackground=card_bg, activeforeground=highlight_cyan
         )
-        right_frame.pack(side="right", fill="y")
-        right_frame.pack_propagate(False)
+        cb_mirror.pack(side="left", padx=(5, 10))
 
-        # Current Sign
-        tk.Label(
-            right_frame,
-            text="CURRENT SIGN",
-            font=heading_font,
-            bg=panel_color,
-            fg=highlight_color
-        ).pack(pady=(0, 5))
+        self.var_landmarks = tk.BooleanVar(value=True)
+        cb_landmarks = tk.Checkbutton(
+            opts_frame, text="Show Landmarks / Skeleton",
+            variable=self.var_landmarks,
+            font=small_font, fg=text_light, bg=card_bg,
+            selectcolor="#0f3460", activebackground=card_bg, activeforeground=highlight_cyan
+        )
+        cb_landmarks.pack(side="left", padx=(0, 10))
 
+        self.var_auto_add = tk.BooleanVar(value=True)
+        cb_auto = tk.Checkbutton(
+            opts_frame, text="Auto-Add Held Sign",
+            variable=self.var_auto_add,
+            font=small_font, fg=text_light, bg=card_bg,
+            selectcolor="#0f3460", activebackground=card_bg, activeforeground=highlight_cyan
+        )
+        cb_auto.pack(side="left", padx=(0, 10))
+
+        self.var_paused = tk.BooleanVar(value=False)
+        self.btn_pause = tk.Button(
+            opts_frame,
+            text="⏸ Pause Detection",
+            font=small_font,
+            bg="#2c3e50", fg="white",
+            activebackground="#34495e", activeforeground="white",
+            relief="flat", padx=8, pady=2, cursor="hand2",
+            command=self.toggle_pause
+        )
+        self.btn_pause.pack(side="right", padx=(0, 5))
+
+        # Sliders card for fine-tuning
+        sliders_card = tk.Frame(cam_card, bg=card_bg, pady=4)
+        sliders_card.pack(fill="x")
+
+        # Confidence slider
+        s_left = tk.Frame(sliders_card, bg=card_bg)
+        s_left.pack(side="left", fill="x", expand=True, padx=(5, 10))
+
+        self.conf_val_lbl = tk.Label(
+            s_left, text="Min Confidence: 70%", font=small_font, fg="#94a3b8", bg=card_bg
+        )
+        self.conf_val_lbl.pack(anchor="w")
+
+        self.conf_slider = tk.Scale(
+            s_left, from_=50, to=95, orient="horizontal",
+            bg=card_bg, fg=text_light, highlightthickness=0,
+            troughcolor="#0f3460", activebackground=highlight_cyan,
+            showvalue=False, command=self._on_conf_change
+        )
+        self.conf_slider.set(70)
+        self.conf_slider.pack(fill="x")
+
+        # Hold frames slider
+        s_right = tk.Frame(sliders_card, bg=card_bg)
+        s_right.pack(side="right", fill="x", expand=True, padx=(0, 5))
+
+        self.hold_val_lbl = tk.Label(
+            s_right, text="Hold Speed: 15 frames (~0.5s)", font=small_font, fg="#94a3b8", bg=card_bg
+        )
+        self.hold_val_lbl.pack(anchor="w")
+
+        self.hold_slider = tk.Scale(
+            s_right, from_=8, to=30, orient="horizontal",
+            bg=card_bg, fg=text_light, highlightthickness=0,
+            troughcolor="#0f3460", activebackground=highlight_cyan,
+            showvalue=False, command=self._on_hold_change
+        )
+        self.hold_slider.set(15)
+        self.hold_slider.pack(fill="x")
+
+        # Camera status & resolution footer
+        self.cam_info_lbl = tk.Label(
+            cam_card, text="Camera: Connecting...", font=small_font, fg="#64748b", bg=card_bg
+        )
+        self.cam_info_lbl.pack(anchor="w", padx=5, pady=(4, 0))
+
+        # ==================================================
+        # RIGHT COLUMN: RECOGNITION & TEXT EDITING CONTROLS
+        # ==================================================
+        right_col = tk.Frame(body, bg=bg_dark, width=380)
+        right_col.pack(side="right", fill="both", expand=True)
+        right_col.pack_propagate(False)
+
+        # --------------------------------------------------
+        # CARD 1: CURRENT DETECTED SIGN
+        # --------------------------------------------------
+        sign_card = tk.LabelFrame(
+            right_col, text="  Current Sign Detection  ",
+            font=heading_font, fg=highlight_cyan, bg=card_bg,
+            padx=10, pady=6, bd=1, relief="solid"
+        )
+        sign_card.pack(fill="x", pady=(0, 8))
+
+        top_sign_row = tk.Frame(sign_card, bg=card_bg)
+        top_sign_row.pack(fill="x")
+
+        # Big sign label
         self.sign_label = tk.Label(
-            right_frame,
+            top_sign_row,
             text="...",
-            font=("Segoe UI", 48, "bold"),
-            bg=panel_color,
-            fg=success_color,
-            width=4
+            font=("Segoe UI", 42, "bold"),
+            bg=card_bg,
+            fg=success_green,
+            width=3
         )
-        self.sign_label.pack(pady=(0, 5))
+        self.sign_label.pack(side="left", padx=(10, 15))
 
-        # Confidence
+        sign_meta_col = tk.Frame(top_sign_row, bg=card_bg)
+        sign_meta_col.pack(side="left", fill="both", expand=True)
+
         self.confidence_label = tk.Label(
-            right_frame,
+            sign_meta_col,
             text="Confidence: 0.0%",
             font=label_font,
-            bg=panel_color,
-            fg=warning_color
+            bg=card_bg,
+            fg=warning_yellow
         )
-        self.confidence_label.pack(pady=(0, 5))
+        self.confidence_label.pack(anchor="w", pady=(4, 2))
 
-        # Confirmation progress
-        self.progress_frame = tk.Frame(
-            right_frame, bg=panel_color
+        self.status_label = tk.Label(
+            sign_meta_col,
+            text="Status: Waiting for hand...",
+            font=small_font,
+            bg=card_bg,
+            fg="#94a3b8"
         )
-        self.progress_frame.pack(fill="x", pady=(0, 5))
+        self.status_label.pack(anchor="w", pady=(0, 2))
+
+        # Stability hold progress bar
+        p_frame = tk.Frame(sign_card, bg=card_bg, pady=2)
+        p_frame.pack(fill="x")
+
+        tk.Label(
+            p_frame, text="Hold Progress:", font=("Segoe UI", 7), fg="#64748b", bg=card_bg
+        ).pack(side="left", padx=(0, 5))
 
         self.progress_canvas = tk.Canvas(
-            self.progress_frame,
-            height=8, bg="#333",
-            highlightthickness=0
+            p_frame, height=8, bg="#0d1117", highlightthickness=0
         )
-        self.progress_canvas.pack(fill="x")
+        self.progress_canvas.pack(side="left", fill="x", expand=True)
 
-        # Status
-        self.status_label = tk.Label(
-            right_frame,
-            text="Status: Starting...",
+        # --------------------------------------------------
+        # CARD 2: RECOGNIZED TEXT & EDITING CONTROLS
+        # --------------------------------------------------
+        text_card = tk.LabelFrame(
+            right_col, text="  Recognized Sentence  ",
+            font=heading_font, fg=highlight_cyan, bg=card_bg,
+            padx=10, pady=8, bd=1, relief="solid"
+        )
+        text_card.pack(fill="both", expand=True)
+
+        # Sub-header with text length counter
+        text_hdr = tk.Frame(text_card, bg=card_bg)
+        text_hdr.pack(fill="x", pady=(0, 4))
+
+        self.text_stats_lbl = tk.Label(
+            text_hdr,
+            text="0 characters | 0 words",
             font=small_font,
-            bg=panel_color,
-            fg=text_color
+            fg="#94a3b8",
+            bg=card_bg
         )
-        self.status_label.pack(pady=(0, 15))
+        self.text_stats_lbl.pack(side="left")
 
-        # Separator
-        tk.Frame(
-            right_frame, bg="#444", height=2
-        ).pack(fill="x", pady=5)
+        self.notif_lbl = tk.Label(
+            text_hdr,
+            text="",
+            font=("Segoe UI", 8, "italic"),
+            fg=success_green,
+            bg=card_bg
+        )
+        self.notif_lbl.pack(side="right")
 
-        # Recognized Text
-        tk.Label(
-            right_frame,
-            text="RECOGNIZED TEXT",
-            font=heading_font,
-            bg=panel_color,
-            fg=highlight_color
-        ).pack(pady=(10, 5))
-
+        # Interactive editable text box
         self.text_display = tk.Text(
-            right_frame,
+            text_card,
             font=text_font,
-            bg="#0d1117",
+            bg="#090d16",
             fg="white",
             insertbackground="white",
-            height=4,
-            width=25,
+            height=3,
             wrap="word",
-            state="disabled",
-            relief="flat",
-            padx=10,
-            pady=10
+            relief="solid",
+            bd=1,
+            padx=8,
+            pady=8
         )
-        self.text_display.pack(fill="x", pady=(0, 15))
+        self.text_display.pack(fill="x", pady=(0, 8))
+        self.text_display.bind("<KeyRelease>", self._on_text_widget_change)
 
-        # Separator
-        tk.Frame(
-            right_frame, bg="#444", height=2
-        ).pack(fill="x", pady=5)
+        # Common button styling
+        def make_btn(parent, text, cmd, bg_col, hover_col, fg_col="white"):
+            b = tk.Button(
+                parent, text=text, command=cmd,
+                font=btn_font, bg=bg_col, fg=fg_col,
+                activebackground=hover_col, activeforeground=fg_col,
+                relief="flat", cursor="hand2", pady=5
+            )
+            return b
 
         # --------------------------------------------------
-        # BUTTONS
+        # TEXT ACTION BUTTONS
         # --------------------------------------------------
 
-        tk.Label(
-            right_frame,
-            text="CONTROLS",
-            font=heading_font,
-            bg=panel_color,
-            fg=highlight_color
-        ).pack(pady=(10, 8))
+        # Row 1: Add Current Sign & Add Space
+        r1 = tk.Frame(text_card, bg=card_bg)
+        r1.pack(fill="x", pady=2)
 
-        button_style = {
-            "font": button_font,
-            "bg": btn_color,
-            "fg": "white",
-            "activebackground": btn_hover,
-            "activeforeground": "white",
-            "relief": "flat",
-            "cursor": "hand2",
-            "padx": 10,
-            "pady": 6
-        }
+        self.btn_add = make_btn(r1, "✓ ADD SIGN", self.add_letter, "#1e3a8a", "#2563eb")
+        self.btn_add.pack(side="left", fill="x", expand=True, padx=(0, 2))
 
-        # Row 1: Add Letter + Space
-        row1 = tk.Frame(right_frame, bg=panel_color)
-        row1.pack(fill="x", pady=3)
+        self.btn_space = make_btn(r1, "⎵ SPACE", self.add_space, "#1e293b", "#334155")
+        self.btn_space.pack(side="right", fill="x", expand=True, padx=(2, 0))
 
-        self.btn_add = tk.Button(
-            row1, text="✓ ADD LETTER",
-            command=self.add_letter,
-            **button_style
-        )
-        self.btn_add.pack(side="left", fill="x", expand=True, padx=(0, 3))
+        # Row 2: Delete Letter (Backspace) & Delete Word
+        r2 = tk.Frame(text_card, bg=card_bg)
+        r2.pack(fill="x", pady=2)
 
-        self.btn_space = tk.Button(
-            row1, text="⎵ SPACE",
-            command=self.add_space,
-            **button_style
-        )
-        self.btn_space.pack(side="right", fill="x", expand=True, padx=(3, 0))
+        self.btn_backspace = make_btn(r2, "⌫ DELETE LETTER", self.backspace, "#7f1d1d", "#991b1b")
+        self.btn_backspace.pack(side="left", fill="x", expand=True, padx=(0, 2))
 
-        # Row 2: Backspace + Clear
-        row2 = tk.Frame(right_frame, bg=panel_color)
-        row2.pack(fill="x", pady=3)
+        self.btn_del_word = make_btn(r2, "🗑️ DELETE WORD", self.delete_word, "#831843", "#9d174d")
+        self.btn_del_word.pack(side="right", fill="x", expand=True, padx=(2, 0))
 
-        self.btn_backspace = tk.Button(
-            row2, text="⌫ BACKSPACE",
-            command=self.backspace,
-            **button_style
-        )
-        self.btn_backspace.pack(side="left", fill="x", expand=True, padx=(0, 3))
+        # Row 3: Clear All & Undo
+        r3 = tk.Frame(text_card, bg=card_bg)
+        r3.pack(fill="x", pady=2)
 
-        self.btn_clear = tk.Button(
-            row2, text="✕ CLEAR",
-            command=self.clear_text,
-            **button_style
-        )
-        self.btn_clear.pack(side="right", fill="x", expand=True, padx=(3, 0))
+        self.btn_clear = make_btn(r3, "✕ CLEAR ALL", self.clear_text, "#450a0a", "#dc2626")
+        self.btn_clear.pack(side="left", fill="x", expand=True, padx=(0, 2))
 
-        # Row 3: Speak
-        speak_btn_style = button_style.copy()
-        speak_btn_style["bg"] = "#1b5e20"
-        speak_btn_style["activebackground"] = "#2e7d32"
+        self.btn_undo = make_btn(r3, "↩ UNDO", self.undo_text, "#374151", "#4b5563")
+        self.btn_undo.pack(side="right", fill="x", expand=True, padx=(2, 0))
 
-        self.btn_speak = tk.Button(
-            right_frame, text="🔊 SPEAK TEXT",
-            command=self.speak_text,
-            **speak_btn_style
-        )
+        # Row 4: Copy to Clipboard & Save to File
+        r4 = tk.Frame(text_card, bg=card_bg)
+        r4.pack(fill="x", pady=2)
+
+        self.btn_copy = make_btn(r4, "📋 COPY TEXT", self.copy_to_clipboard, "#065f46", "#059669")
+        self.btn_copy.pack(side="left", fill="x", expand=True, padx=(0, 2))
+
+        self.btn_save = make_btn(r4, "💾 SAVE TO FILE", self.save_to_file, "#0e7490", "#0891b2")
+        self.btn_save.pack(side="right", fill="x", expand=True, padx=(2, 0))
+
+        # Row 5: Speak Text (Full width)
+        self.btn_speak = make_btn(text_card, "🔊 SPEAK SENTENCE (TTS)", self.speak_text, "#14532d", "#16a34a")
         self.btn_speak.pack(fill="x", pady=3)
 
-        # Row 4: Exit
-        exit_btn_style = button_style.copy()
-        exit_btn_style["bg"] = "#b71c1c"
-        exit_btn_style["activebackground"] = "#d32f2f"
+        # Row 6: Sign Reference Guide & Exit
+        r6 = tk.Frame(text_card, bg=card_bg)
+        r6.pack(fill="x", pady=2)
 
-        self.btn_exit = tk.Button(
-            right_frame, text="✕ EXIT",
-            command=self.quit_app,
-            **exit_btn_style
-        )
-        self.btn_exit.pack(fill="x", pady=(3, 10))
+        self.btn_guide = make_btn(r6, "📖 SIGN GUIDE", self.show_sign_guide, "#312e81", "#4338ca")
+        self.btn_guide.pack(side="left", fill="x", expand=True, padx=(0, 2))
+
+        self.btn_exit = make_btn(r6, "✕ EXIT", self.quit_app, "#3f3f46", "#52525b")
+        self.btn_exit.pack(side="right", fill="x", expand=True, padx=(2, 0))
 
         # --------------------------------------------------
-        # FOOTER
+        # FOOTER LEGEND
         # --------------------------------------------------
+        footer = tk.Frame(right_col, bg=bg_dark, pady=4)
+        footer.pack(fill="x")
 
-        tk.Frame(
-            right_frame, bg="#444", height=2
-        ).pack(fill="x", pady=5)
-
-        self.supported_label = tk.Label(
-            right_frame,
-            text=f"Supported: {', '.join(self.labels)}",
-            font=("Segoe UI", 8),
-            bg=panel_color,
-            fg="#888",
-            wraplength=280,
-            justify="center"
-        )
-        self.supported_label.pack(pady=(5, 0))
-
-        # Speech status
-        speech_status = "🔊 TTS Available" if self.speech.available else "🔇 TTS Unavailable"
+        shortcuts_txt = "Shortcuts: Space=Add | -=Space | Backspace=Del Char | Ctrl+Del=Clear | S=Speak | P=Pause | Esc=Exit"
         tk.Label(
-            right_frame,
-            text=speech_status,
-            font=("Segoe UI", 8),
-            bg=panel_color,
-            fg="#666"
-        ).pack()
+            footer, text=shortcuts_txt, font=("Segoe UI", 7), fg="#64748b", bg=bg_dark, wraplength=370, justify="left"
+        ).pack(anchor="w")
 
         # --------------------------------------------------
-        # KEY BINDINGS
+        # GLOBAL KEYBOARD BINDINGS
         # --------------------------------------------------
-
-        self.root.bind("<space>", lambda e: self.add_letter())
+        self.root.bind("<space>", lambda e: self._on_space_key(e))
         self.root.bind("<minus>", lambda e: self.add_space())
-        self.root.bind("<BackSpace>", lambda e: self.backspace())
+        self.root.bind("<BackSpace>", lambda e: self._on_backspace_key(e))
+        self.root.bind("<Control-BackSpace>", lambda e: self.delete_word())
         self.root.bind("<Delete>", lambda e: self.clear_text())
+        self.root.bind("<Control-z>", lambda e: self.undo_text())
+        self.root.bind("<Control-c>", lambda e: self.copy_to_clipboard())
+        self.root.bind("s", lambda e: self._on_s_key(e))
+        self.root.bind("p", lambda e: self._on_p_key(e))
         self.root.bind("<Escape>", lambda e: self.quit_app())
-        self.root.bind("s", lambda e: self.speak_text())
-
-        # Handle window close
         self.root.protocol("WM_DELETE_WINDOW", self.quit_app)
 
     # ==================================================
-    # BUTTON ACTIONS
+    # KEYBOARD & SLIDER HANDLERS
+    # ==================================================
+
+    def _on_space_key(self, event):
+        # If user is actively typing in text widget, let normal space pass through
+        if self.root.focus_get() == self.text_display:
+            return
+        if self.predicted_label not in ("...", "Unknown"):
+            self.add_letter()
+        else:
+            self.add_space()
+
+    def _on_backspace_key(self, event):
+        if self.root.focus_get() == self.text_display:
+            return
+        self.backspace()
+
+    def _on_s_key(self, event):
+        if self.root.focus_get() == self.text_display:
+            return
+        self.speak_text()
+
+    def _on_p_key(self, event):
+        if self.root.focus_get() == self.text_display:
+            return
+        self.toggle_pause()
+
+    def _on_conf_change(self, val):
+        self.conf_val_lbl.config(text=f"Min Confidence: {val}%")
+
+    def _on_hold_change(self, val):
+        fps_est = max(self.current_fps, 25.0)
+        secs = float(val) / fps_est
+        self.hold_val_lbl.config(text=f"Hold Speed: {val} frames (~{secs:.1f}s)")
+
+    def _on_text_widget_change(self, event=None):
+        """Keep buffer in sync when user edits directly in text widget."""
+        if self._updating_display:
+            return
+        new_text = self.text_display.get("1.0", "end-1c")
+        if new_text != self.text_buffer:
+            self._push_undo()
+            self.text_buffer = new_text
+            self._update_stats_label()
+
+    def _push_undo(self):
+        """Push current text state to undo stack."""
+        if not self.undo_stack or self.undo_stack[-1] != self.text_buffer:
+            self.undo_stack.append(self.text_buffer)
+            if len(self.undo_stack) > 30:
+                self.undo_stack.pop(0)
+
+    def _set_notification(self, msg, duration_ms=2500):
+        """Display a temporary toast notification in the UI."""
+        self.notif_lbl.config(text=msg)
+        self.root.after(duration_ms, lambda: self.notif_lbl.config(text=""))
+
+    def _update_stats_label(self):
+        chars = len(self.text_buffer)
+        words = len(self.text_buffer.strip().split()) if self.text_buffer.strip() else 0
+        self.text_stats_lbl.config(text=f"{chars} characters | {words} words")
+
+    def _update_text_display(self):
+        """Refresh text widget from internal buffer."""
+        self._updating_display = True
+        self.text_display.delete("1.0", tk.END)
+        self.text_display.insert("1.0", self.text_buffer)
+        self.text_display.see(tk.END)
+        self._updating_display = False
+        self._update_stats_label()
+
+    # ==================================================
+    # BUTTON ACTIONS: TEXT & PREDICTION
     # ==================================================
 
     def add_letter(self):
-        """Add the current predicted letter to text buffer."""
+        """Manually add current predicted sign."""
         if self.predicted_label not in ("...", "Unknown"):
+            self._push_undo()
             self.text_buffer += self.predicted_label
             self._update_text_display()
-            print(f"Added: {self.predicted_label} | Text: {self.text_buffer}")
+            self._set_notification(f"Added letter: {self.predicted_label}")
+            print(f"Added letter: {self.predicted_label} | Text: '{self.text_buffer}'")
 
     def add_space(self):
-        """Add a space to the text buffer."""
+        """Add space word separator."""
+        self._push_undo()
         self.text_buffer += " "
         self._update_text_display()
-        print(f"Space added | Text: '{self.text_buffer}'")
+        self._set_notification("Added Space")
 
     def backspace(self):
-        """Remove the last character."""
+        """Delete last letter / character."""
         if len(self.text_buffer) > 0:
+            self._push_undo()
+            removed = self.text_buffer[-1]
             self.text_buffer = self.text_buffer[:-1]
             self._update_text_display()
-            print(f"Backspace | Text: '{self.text_buffer}'")
+            self._set_notification(f"Deleted '{removed}'")
+            print(f"Deleted letter | Text: '{self.text_buffer}'")
+
+    def delete_word(self):
+        """Delete the last space-separated word."""
+        if not self.text_buffer:
+            return
+        self._push_undo()
+        trimmed = self.text_buffer.rstrip()
+        last_space = trimmed.rfind(" ")
+        if last_space == -1:
+            self.text_buffer = ""
+        else:
+            self.text_buffer = trimmed[:last_space + 1]
+        self._update_text_display()
+        self._set_notification("Deleted word")
+        print(f"Deleted word | Text: '{self.text_buffer}'")
 
     def clear_text(self):
-        """Clear all text."""
+        """Clear all text with undo protection."""
+        if not self.text_buffer:
+            return
+        self._push_undo()
         self.text_buffer = ""
         self._update_text_display()
+        self._set_notification("Cleared all text (Press Undo to restore)")
         print("Text cleared.")
 
-    def speak_text(self):
-        """Speak the current text."""
+    def undo_text(self):
+        """Restore text from undo stack."""
+        if self.undo_stack:
+            self.text_buffer = self.undo_stack.pop()
+            self._update_text_display()
+            self._set_notification("Undone last edit")
+            print(f"Undo action | Restored: '{self.text_buffer}'")
+        else:
+            self._set_notification("Nothing to undo")
+
+    def copy_to_clipboard(self):
+        """Copy recognized text to system clipboard."""
         if not self.text_buffer.strip():
+            self._set_notification("Nothing to copy")
+            return
+        self.root.clipboard_clear()
+        self.root.clipboard_append(self.text_buffer)
+        self.root.update()
+        self._set_notification("✓ Copied to clipboard!")
+
+    def save_to_file(self):
+        """Save recognized sentence with timestamp to isl_history.txt."""
+        if not self.text_buffer.strip():
+            self._set_notification("Nothing to save")
+            return
+        try:
+            timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+            with open("isl_history.txt", "a", encoding="utf-8") as f:
+                f.write(f"[{timestamp}] {self.text_buffer.strip()}\n")
+            self._set_notification("✓ Saved to isl_history.txt")
+            print(f"Saved: '[{timestamp}] {self.text_buffer}'")
+        except Exception as e:
+            self._set_notification(f"Save error: {e}")
+
+    def speak_text(self):
+        """Speak recognized text aloud."""
+        if not self.text_buffer.strip():
+            self._set_notification("No text to speak")
             return
 
         if not self.speech.available:
             messagebox.showwarning(
-                "Speech Unavailable",
-                "Text-to-speech is not available.\n"
-                "Install pyttsx3: pip install pyttsx3"
+                "TTS Unavailable",
+                "Text-to-speech is not available.\nInstall pyttsx3: pip install pyttsx3"
             )
             return
 
-        if self.speech.speaking:
-            return
-
-        print(f"Speaking: {self.text_buffer}")
+        self._set_notification("🔊 Speaking...")
         self.speech.speak(self.text_buffer)
 
-    def quit_app(self):
-        """Quit the application."""
-        self.running = False
+    def toggle_pause(self):
+        """Pause or resume sign detection."""
+        is_paused = not self.var_paused.get()
+        self.var_paused.set(is_paused)
+        if is_paused:
+            self.btn_pause.config(text="▶ Resume Detection", bg="#15803d")
+            self.status_label.config(text="Status: Detection Paused", fg="#ffd600")
+            self.sign_label.config(text="PAUSED", font=("Segoe UI", 16, "bold"), fg="#ffd600")
+            self._set_notification("Detection paused")
+        else:
+            self.btn_pause.config(text="⏸ Pause Detection", bg="#2c3e50")
+            self.sign_label.config(font=("Segoe UI", 42, "bold"))
+            self._set_notification("Detection resumed")
 
-    def _update_text_display(self):
-        """Update the text display widget."""
-        self.text_display.config(state="normal")
-        self.text_display.delete("1.0", tk.END)
-        self.text_display.insert("1.0", self.text_buffer)
-        self.text_display.config(state="disabled")
+    def show_sign_guide(self):
+        """Display an interactive modal showing supported alphabet gestures."""
+        guide_win = tk.Toplevel(self.root)
+        guide_win.title("Indian Sign Language - Gesture Reference Guide")
+        guide_win.configure(bg="#121826")
+        guide_win.geometry("540x520")
+        guide_win.resizable(False, False)
+        guide_win.lift()
+        guide_win.grab_set()
+
+        hdr = tk.Frame(guide_win, bg="#0f3460", padx=15, pady=12)
+        hdr.pack(fill="x")
+        tk.Label(
+            hdr, text="📖 ISL Alphabet & Gesture Reference",
+            font=("Segoe UI", 13, "bold"), fg="#00d4ff", bg="#0f3460"
+        ).pack()
+        tk.Label(
+            hdr, text="Supported Indian Sign Language alphabet characters (A - Z)",
+            font=("Segoe UI", 9), fg="#e0e0e0", bg="#0f3460"
+        ).pack(pady=(2, 0))
+
+        content = tk.Frame(guide_win, bg="#121826", padx=15, pady=12)
+        content.pack(fill="both", expand=True)
+
+        # Alphabet grid
+        grid_frame = tk.LabelFrame(
+            content, text="  Supported Letters (26 Classes)  ",
+            font=("Segoe UI", 10, "bold"), fg="#00d4ff", bg="#1a2234",
+            padx=10, pady=10, bd=1, relief="solid"
+        )
+        grid_frame.pack(fill="x", pady=(0, 10))
+
+        cols = 7
+        for idx, lbl in enumerate(self.labels):
+            r = idx // cols
+            c = idx % cols
+            btn = tk.Label(
+                grid_frame, text=lbl, font=("Segoe UI", 11, "bold"),
+                bg="#0f3460", fg="#00e676", width=4, height=1, relief="ridge"
+            )
+            btn.grid(row=r, column=c, padx=3, pady=3)
+
+        # Guidelines card
+        tips_frame = tk.LabelFrame(
+            content, text="  Signing Best Practices  ",
+            font=("Segoe UI", 10, "bold"), fg="#00d4ff", bg="#1a2234",
+            padx=12, pady=8, bd=1, relief="solid"
+        )
+        tips_frame.pack(fill="both", expand=True)
+
+        tips = [
+            "• ISL uses 2-handed signing for many letters (A, B, D, G, H, P, Q, R, S, T, W, X, Y).",
+            "• Single-handed signs (C, E, I, J, L, O, U, V, Z) are also supported.",
+            "• Keep both hands fully within camera view facing adequate lighting.",
+            "• Hold your sign steady for ~0.5 seconds to auto-confirm into text.",
+            "• If an incorrect letter is added, click 'DELETE LETTER' or 'DELETE WORD'."
+        ]
+        for t in tips:
+            tk.Label(
+                tips_frame, text=t, font=("Segoe UI", 8), fg="#cbd5e1", bg="#1a2234", anchor="w"
+            ).pack(fill="x", pady=2)
+
+        close_btn = tk.Button(
+            content, text="Close Guide", font=("Segoe UI", 9, "bold"),
+            bg="#2563eb", fg="white", activebackground="#3b82f6",
+            relief="flat", padx=15, pady=5, cursor="hand2",
+            command=guide_win.destroy
+        )
+        close_btn.pack(pady=(10, 0))
 
     # ==================================================
-    # CAMERA LOOP
+    # CAMERA MANAGEMENT
+    # ==================================================
+
+    def rescan_cameras(self):
+        """Probe connected camera devices and populate dropdown."""
+        print("Rescanning connected camera hardware...")
+        self.probed_cameras = probe_all_cameras()
+        menu_items = []
+        best_active_item = None
+
+        for dev in self.probed_cameras:
+            label = dev["label"]
+            menu_items.append(label)
+            if dev["is_active"] and best_active_item is None:
+                best_active_item = label
+
+        self.cam_combobox["values"] = menu_items
+
+        # If currently open camera is still in list, keep it selected
+        if self.active_camera_info:
+            curr_label = self.active_camera_info.get("label", "")
+            for item in menu_items:
+                if f"Camera {self.active_camera_info['index']}" in item and self.active_camera_info['backend_name'] in item:
+                    self.cam_combo_var.set(item)
+                    return
+
+        # Otherwise pick best active
+        if best_active_item:
+            self.cam_combo_var.set(best_active_item)
+        elif menu_items:
+            self.cam_combo_var.set(menu_items[0])
+
+    def _on_camera_selected(self, event=None):
+        """Handler when user picks a camera from dropdown."""
+        selected_label = self.cam_combo_var.get()
+        for dev in self.probed_cameras:
+            if dev["label"] == selected_label:
+                self._switch_to_camera_device(dev)
+                return
+
+    def _switch_to_camera_device(self, dev_info):
+        """Open a specific probed camera device."""
+        print(f"Switching camera to: {dev_info['label']}...")
+        if self.camera:
+            self.camera.release()
+
+        try:
+            new_cap = cv2.VideoCapture(dev_info["index"], dev_info["backend"])
+            if new_cap and new_cap.isOpened():
+                new_cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+                new_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+                self.camera = new_cap
+                self.active_camera_info = dev_info
+                self.preferred_camera_idx = dev_info["index"]
+                self.cam_info_lbl.config(
+                    text=f"Camera: Device {dev_info['index']} [{dev_info['backend_name']}] - {dev_info['width']}x{dev_info['height']}"
+                )
+                self._set_notification(f"Switched to Camera {dev_info['index']}")
+                print(f"Switched successfully to {dev_info['label']}")
+                return True
+        except Exception as e:
+            print(f"Error switching camera: {e}")
+
+        # Fallback
+        self._set_notification("Failed to switch camera, restoring auto-detected device")
+        self.camera, self.active_camera_info = open_best_camera()
+        return False
+
+    def init_camera(self):
+        """Initialize best working camera on startup."""
+        self.rescan_cameras()
+        print("Selecting best available camera...")
+        self.camera, self.active_camera_info = open_best_camera(preferred_idx=self.preferred_camera_idx)
+        if not self.camera:
+            return False
+
+        # Sync dropdown
+        for dev in self.probed_cameras:
+            if dev["index"] == self.active_camera_info["index"] and dev["backend_name"] == self.active_camera_info["backend_name"]:
+                self.cam_combo_var.set(dev["label"])
+                break
+
+        self.cam_info_lbl.config(
+            text=f"Camera: Device {self.active_camera_info['index']} [{self.active_camera_info['backend_name']}] - {self.active_camera_info['width']}x{self.active_camera_info['height']}"
+        )
+        return True
+
+    # ==================================================
+    # MAIN CAMERA PROCESSING LOOP
     # ==================================================
 
     def process_frame(self):
-        """Process one camera frame."""
+        """Main camera acquisition and AI inference frame loop."""
         if not self.running:
             return
 
         success, frame = self.camera.read()
-
-        if not success:
-            self.status_label.config(
-                text="Status: Camera error",
-                fg="#ff5252"
-            )
-            self.root.after(100, self.process_frame)
+        if not success or frame is None:
+            self.status_label.config(text="Status: Camera read failed", fg="#ff4757")
+            self.root.after(80, self.process_frame)
             return
 
-        # Mirror
-        frame = cv2.flip(frame, 1)
+        # FPS calculation
+        now = time.time()
+        fps = 1.0 / max(now - self.prev_frame_time, 0.001)
+        self.prev_frame_time = now
+        self.fps_list.append(fps)
+        self.current_fps = sum(self.fps_list) / len(self.fps_list)
 
-        # Detect hands
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        detection_result = self.hand_detector.detect(rgb_frame)
+        # Mirror flip if enabled
+        if self.var_mirror.get():
+            frame = cv2.flip(frame, 1)
 
-        if detection_result and detection_result.hand_landmarks:
-            self.hand_detected = True
+        # Check for genuine pitch black frame (cover closed)
+        frame_mean = float(np.mean(frame))
+        frame_std = float(np.std(frame))
+        is_covered = (frame_mean < 2.0 and frame_std < 2.0)
 
-            # Extract features according to model requirements
-            if self.expected_features == 126:
-                features = normalize_two_hands(detection_result)
-                if features is not None:
-                    features = features.reshape(1, 126)
-            else:
-                features = normalize_landmarks(detection_result.hand_landmarks[0])
-                features = features.reshape(1, 63)
+        # Skip inference if detection paused or lens covered
+        if not self.var_paused.get() and not is_covered:
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            detection_result = self.hand_detector.detect(rgb_frame)
 
-            if features is not None:
-                prediction = self.model.predict(features, verbose=0)
-                predicted_index = np.argmax(prediction[0])
-                self.confidence = float(prediction[0][predicted_index])
-                current_label = str(self.labels[predicted_index])
+            if detection_result and detection_result.hand_landmarks:
+                self.hand_detected = True
+                self.num_hands_detected = len(detection_result.hand_landmarks)
 
-                # Confidence filter + smoothing
-                if self.confidence >= self.CONFIDENCE_THRESHOLD:
-                    self.prediction_history.append(current_label)
-                    self.predicted_label = Counter(
-                        self.prediction_history
-                    ).most_common(1)[0][0]
+                # Extract features
+                if self.expected_features == 126:
+                    features = normalize_two_hands(detection_result)
+                    if features is not None:
+                        features = features.reshape(1, 126)
                 else:
-                    self.prediction_history.clear()
-                    self.predicted_label = "..."
+                    features = normalize_landmarks(detection_result.hand_landmarks[0])
+                    features = features.reshape(1, 63)
 
-                # Letter confirmation (auto-confirm)
-                self._process_confirmation()
+                if features is not None:
+                    prediction = self.model.predict(features, verbose=0)
+                    pred_idx = np.argmax(prediction[0])
+                    self.confidence = float(prediction[0][pred_idx])
+                    current_label = str(self.labels[pred_idx])
 
-            # Draw all hands on frame
-            for hand_idx, lms in enumerate(detection_result.hand_landmarks):
-                line_c = (0, 255, 0) if hand_idx == 0 else (255, 200, 0)
-                draw_hand(frame, lms, line_color=line_c)
+                    min_conf = float(self.conf_slider.get()) / 100.0
+                    if self.confidence >= min_conf:
+                        self.prediction_history.append(current_label)
+                        self.predicted_label = Counter(self.prediction_history).most_common(1)[0][0]
+                    else:
+                        self.prediction_history.clear()
+                        self.predicted_label = "..."
 
-        else:
-            self.hand_detected = False
-            self.prediction_history.clear()
-            self.predicted_label = "..."
-            self.confidence = 0.0
-            self.stable_count = 0
-            self.last_stable_label = None
-            self.need_change_before_repeat = False
+                    # Auto confirmation
+                    if self.var_auto_add.get():
+                        self._process_auto_confirmation()
 
-        # --------------------------------------------------
-        # UPDATE GUI
-        # --------------------------------------------------
+                # Draw skeleton landmarks
+                if self.var_landmarks.get():
+                    for hand_i, lms in enumerate(detection_result.hand_landmarks):
+                        color = (0, 255, 0) if hand_i == 0 else (255, 200, 0)
+                        draw_hand(frame, lms, line_color=color)
 
-        # Update sign label
-        self.sign_label.config(text=self.predicted_label)
+            else:
+                self.hand_detected = False
+                self.num_hands_detected = 0
+                self.prediction_history.clear()
+                self.predicted_label = "..."
+                self.confidence = 0.0
+                self.stable_count = 0
+                self.last_stable_label = None
+                self.need_change_before_repeat = False
 
-        if self.hand_detected:
-            self.sign_label.config(fg="#00e676")
-        else:
-            self.sign_label.config(fg="#666")
+        # Update GUI elements
+        self._update_gui_feed(frame, is_covered)
 
-        # Update confidence
-        conf_text = f"Confidence: {self.confidence * 100:.1f}%"
-        self.confidence_label.config(text=conf_text)
-
-        if self.confidence >= 0.9:
-            self.confidence_label.config(fg="#00e676")
-        elif self.confidence >= 0.7:
-            self.confidence_label.config(fg="#ffd600")
-        else:
-            self.confidence_label.config(fg="#ff5252")
-
-        # Update status
-        if self.hand_detected:
-            self.status_label.config(
-                text="Status: ✋ Hand Detected",
-                fg="#00e676"
-            )
-        else:
-            self.status_label.config(
-                text="Status: Show your hand",
-                fg="#ff5252"
-            )
-
-        # Update progress bar
-        self.progress_canvas.delete("all")
-        canvas_width = self.progress_canvas.winfo_width()
-
-        if canvas_width > 1 and self.stable_count > 0 and not self.need_change_before_repeat:
-            progress = min(self.stable_count / self.CONFIRM_FRAMES, 1.0)
-            fill_width = int(canvas_width * progress)
-            self.progress_canvas.create_rectangle(
-                0, 0, fill_width, 8,
-                fill="#00e676", outline=""
-            )
-
-        # Update camera display
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        img = Image.fromarray(frame_rgb)
-        img = img.resize((640, 480))
-        imgtk = ImageTk.PhotoImage(image=img)
-        self.camera_label.imgtk = imgtk
-        self.camera_label.configure(image=imgtk)
-
-        # Schedule next frame
+        # Schedule next frame (approx 30-60 FPS)
         if self.running:
             self.root.after(15, self.process_frame)
 
-    def _process_confirmation(self):
-        """Process letter auto-confirmation."""
+    def _process_auto_confirmation(self):
+        """Auto-add letters when a sign is held steadily for required frame count."""
         if self.cooldown_counter > 0:
             self.cooldown_counter -= 1
             return
@@ -904,123 +1194,117 @@ class ISLApp:
             self.last_stable_label = self.predicted_label
             self.need_change_before_repeat = False
 
-        # Auto-confirm after stable frames
-        if self.stable_count >= self.CONFIRM_FRAMES:
+        target_hold = int(self.hold_slider.get())
+        if self.stable_count >= target_hold:
             if not self.need_change_before_repeat:
+                self._push_undo()
                 self.text_buffer += self.predicted_label
                 self._update_text_display()
-                print(
-                    f"Auto-confirmed: {self.predicted_label} | "
-                    f"Text: {self.text_buffer}"
-                )
+                self._set_notification(f"Auto-added: {self.predicted_label}")
+                print(f"Auto-added: {self.predicted_label} | Text: '{self.text_buffer}'")
 
-                self.last_confirmed_label = self.predicted_label
                 self.need_change_before_repeat = True
                 self.stable_count = 0
                 self.cooldown_counter = self.COOLDOWN_FRAMES
 
+    def _update_gui_feed(self, frame, is_covered):
+        """Render overlay graphics and update Tkinter camera canvas."""
+        # Visual overlay tags on OpenCV frame
+        fps_str = f"{self.current_fps:.1f} FPS"
+        cv2.putText(
+            frame, fps_str, (15, 30),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 0), 2
+        )
+
+        if is_covered:
+            cv2.putText(
+                frame, "CAMERA SHUTTER COVERED OR PITCH BLACK",
+                (30, frame.shape[0] // 2), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2
+            )
+            self.status_label.config(text="Status: Shutter Closed / Fn+F10", fg="#ff4757")
+        elif self.var_paused.get():
+            cv2.putText(
+                frame, "DETECTION PAUSED",
+                (30, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 212, 255), 2
+            )
+        else:
+            # Update labels
+            if not self.var_paused.get():
+                self.sign_label.config(text=self.predicted_label)
+                if self.hand_detected:
+                    self.sign_label.config(fg="#00e676")
+                    hands_txt = f"✋ {self.num_hands_detected} Hand{'s' if self.num_hands_detected > 1 else ''} Detected"
+                    self.status_label.config(text=f"Status: {hands_txt}", fg="#00e676")
+                else:
+                    self.sign_label.config(fg="#64748b")
+                    self.status_label.config(text="Status: Show your hand", fg="#94a3b8")
+
+                conf_percent = self.confidence * 100.0
+                self.confidence_label.config(text=f"Confidence: {conf_percent:.1f}%")
+                if conf_percent >= 85.0:
+                    self.confidence_label.config(fg="#00e676")
+                elif conf_percent >= 70.0:
+                    self.confidence_label.config(fg="#ffd600")
+                else:
+                    self.confidence_label.config(fg="#ff4757")
+
+        # Update hold progress canvas
+        self.progress_canvas.delete("all")
+        canvas_width = self.progress_canvas.winfo_width()
+        target_hold = int(self.hold_slider.get())
+
+        if canvas_width > 1 and self.stable_count > 0 and not self.need_change_before_repeat:
+            prog = min(self.stable_count / max(target_hold, 1), 1.0)
+            fill_w = int(canvas_width * prog)
+            self.progress_canvas.create_rectangle(
+                0, 0, fill_w, 8, fill="#00e676", outline=""
+            )
+
+        # Convert and blit frame to Tkinter
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        img = Image.fromarray(rgb)
+        img = img.resize((640, 480))
+        imgtk = ImageTk.PhotoImage(image=img)
+        self.camera_label.imgtk = imgtk
+        self.camera_label.configure(image=imgtk)
+
     # ==================================================
-    # RUN
+    # LIFECYCLE
     # ==================================================
 
-    def _open_camera(self, target_idx=None):
-        """Open camera with fallback options and hardware warmup."""
-        target = self.camera_index if target_idx is None else target_idx
-        alt = 1 if target == 0 else 0
-        candidates = [
-            (None, target),                            # Default backend first (Bright RGB camera on ASUS!)
-            (cv2.CAP_DSHOW, 1 if target == 0 else 0),  # DSHOW index 1 is also RGB
-            (cv2.CAP_DSHOW, target),
-            (None, alt),
-        ]
-        for backend, idx in candidates:
-            backend_str = "DSHOW" if backend is not None else "DEFAULT"
-            if backend is not None:
-                cap = cv2.VideoCapture(idx, backend)
-            else:
-                cap = cv2.VideoCapture(idx)
-
-            if cap and cap.isOpened():
-                for attempt in range(12):
-                    ret, frame = cap.read()
-                    if ret and frame is not None and frame.size > 0:
-                        print(f"Camera successfully opened (index {idx} [{backend_str}], {frame.shape[1]}x{frame.shape[0]})")
-                        return cap
-                    time.sleep(0.08)
-                cap.release()
-        return None
-
-    def switch_camera(self):
-        """Switch between camera 0 and camera 1 on the fly."""
-        new_idx = 1 if self.camera_index == 0 else 0
-        print(f"Switching camera from {self.camera_index} to {new_idx}...")
+    def quit_app(self):
+        """Gracefully terminate application."""
+        print("Closing application...")
+        self.running = False
         if self.camera:
             self.camera.release()
-        new_cam = self._open_camera(new_idx)
-        if new_cam:
-            self.camera = new_cam
-            self.camera_index = new_idx
-            self.cam_switch_btn.config(text=f"🔄 Switch Camera ({self.camera_index})")
-            print(f"Switched to camera {self.camera_index}")
-        else:
-            print(f"Failed to switch to camera {new_idx}, restoring {self.camera_index}")
-            self.camera = self._open_camera(self.camera_index)
+        self.hand_detector.close()
+        cv2.destroyAllWindows()
+        self.root.destroy()
+        print("Application terminated.")
+        if self.text_buffer:
+            print(f"Recognized text session: '{self.text_buffer}'")
 
     def run(self):
-        """Start the application."""
-        print()
-        print("=" * 50)
-        print("  Starting ISL Recognition System...")
-        print("=" * 50)
-        print()
+        """Start the application loop."""
+        print("=" * 60)
+        print("  Indian Sign Language Recognition System - GUI Starting")
+        print("=" * 60)
 
-        # Open camera
-        print("Opening webcam...")
-        self.camera = self._open_camera()
-
-        if not self.camera:
+        if not self.init_camera():
             messagebox.showerror(
                 "Camera Error",
-                "Could not open webcam.\n\n"
+                "Could not open any webcam device.\n\n"
                 "Please check:\n"
-                "- Camera is connected\n"
-                "- Windows camera permissions allow desktop apps\n"
-                "- Camera is not in use by another app"
+                "1. Laptop camera privacy slider (bezel switch)\n"
+                "2. Windows camera permissions for desktop applications\n"
+                "3. Press Fn+F10 to toggle camera privacy hardware lock"
             )
             return
 
         self.running = True
-
-        print("Camera opened successfully.")
-        print()
-        print("Keyboard shortcuts:")
-        print("  Space     = Add letter")
-        print("  -         = Add space")
-        print("  Backspace = Delete last")
-        print("  Delete    = Clear all")
-        print("  S         = Speak text")
-        print("  Escape    = Exit")
-        print()
-
-        # Start processing
-        self.root.after(100, self.process_frame)
-
-        # Run main loop
+        self.root.after(80, self.process_frame)
         self.root.mainloop()
-
-        # Cleanup
-        self.running = False
-
-        if self.camera:
-            self.camera.release()
-
-        self.hand_detector.close()
-        cv2.destroyAllWindows()
-
-        print()
-        print("Application closed.")
-        if self.text_buffer:
-            print(f"Final text: {self.text_buffer}")
 
 
 # ==================================================
@@ -1028,22 +1312,11 @@ class ISLApp:
 # ==================================================
 
 def main():
-
     check_files()
-
-    print()
-    print("=" * 50)
-    print("  INDIAN SIGN LANGUAGE")
-    print("  RECOGNITION SYSTEM")
-    print("=" * 50)
-    print()
-
-    # Check pillow
     try:
         from PIL import Image, ImageTk
     except ImportError:
-        print("ERROR: Pillow is required for the GUI.")
-        print("Install it: pip install pillow")
+        print("ERROR: Pillow is required. Install: pip install pillow")
         sys.exit(1)
 
     app = ISLApp()

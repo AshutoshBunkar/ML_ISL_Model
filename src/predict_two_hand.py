@@ -148,10 +148,12 @@ for i, a in enumerate(sys.argv):
         except ValueError:
             pass
 
-camera = cv2.VideoCapture(camera_idx)
-if not camera.isOpened():
-    print(f"Could not open camera {camera_idx}. Trying default camera 0...")
-    camera = cv2.VideoCapture(0)
+from camera_utils import open_best_camera
+camera, active_cam_info = open_best_camera(preferred_idx=camera_idx)
+if not camera:
+    print("ERROR: Could not open any camera device. Check connections.")
+    sys.exit(1)
+current_camera_idx = active_cam_info["index"]
 
 
 # --------------------------------------------------

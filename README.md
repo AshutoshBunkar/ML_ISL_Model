@@ -1,983 +1,357 @@
-# 🇮🇳 Indian Sign Language Recognition System
+# 🇮🇳 Indian Sign Language (ISL) Recognition System
+### Real-Time Two-Hand Relative-Coordinate Pipeline, Deep Neural Network & Assistive Desktop Interface
 
-A real-time **Indian Sign Language (ISL) Alphabet Recognition System** built using **Python, OpenCV, MediaPipe, and TensorFlow/Keras**.
-
-This project uses a webcam to detect hand landmarks and recognize **Indian Sign Language alphabet signs from A to Z** in real time. The recognized signs can be converted into text and used as a foundation for communication assistance.
+[![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![TensorFlow](https://img.shields.io/badge/TensorFlow-2.16-FF6F00?logo=tensorflow&logoColor=white)](https://www.tensorflow.org/)
+[![MediaPipe](https://img.shields.io/badge/MediaPipe-0.10.14-007ACC?logo=google&logoColor=white)](https://developers.google.com/mediapipe)
+[![OpenCV](https://img.shields.io/badge/OpenCV-4.10-5C3EE8?logo=opencv&logoColor=white)](https://opencv.org/)
+[![Accuracy](https://img.shields.io/badge/Test_Accuracy-99.72%25-00C853)](file:///results/classification_report.txt)
+[![Test Suite](https://img.shields.io/badge/Test_Suite-11%2F11_Passed-brightgreen)](file:///test_all_features.py)
 
 ---
 
-## 📌 Project Overview
+## 📌 Executive Summary
 
-Communication can be difficult for people who use sign language when interacting with people who do not understand it.
+The **Indian Sign Language (ISL) Recognition System** is an authentic, vision-based assistive communication application designed for real-time translation of the manual ISL alphabet into written text and spoken speech. 
 
-This project aims to provide a computer-vision-based system that can recognize Indian Sign Language alphabet gestures using a webcam.
+Unlike American Sign Language (ASL), which is primarily single-handed, **over 75% of Indian Sign Language alphabet signs are two-handed** (e.g., `A, B, D, G, H, M, N, P, Q, R, S, T, W, X, Y`). This project rejects the conventional single-hand paradigm and introduces a **Deterministic Spatial Relative-Coordinate Normalization Engine** that models up to 42 hand keypoints (126 dimensions across $x, y, z$).
 
-The system detects up to two hands, extracts **hand landmarks using MediaPipe (up to 42 landmarks / 126 features)**, converts them into wrist-relative normalized features, and uses a trained **TensorFlow/Keras neural network** with BatchNormalization to classify the gesture into one of the 26 alphabet classes with **99.85% accuracy**.
+### 🌟 Headline Achievements
+- **99.72% Test Accuracy** evaluated on **12,551 completely unseen held-out test samples** (35 total errors across the entire test benchmark).
+- **Macro Average F1-Score: 99.72%** | **Weighted F1-Score: 99.72%**.
+- **19 of 26 Alphabet Classes** achieve flawless **100.0% precision and recall**.
+- **Historical Ambiguity Resolution:** Completely eliminates prior single-hand confusions (`X` recall: 15% $\to$ 99.4%, `N` recall: 32% $\to$ 100%, `M` recall: 42% $\to$ 100%, `D` vs `Y` separated).
+- **Multi-Backend Camera Engine:** Seamless support for Windows DirectShow (`CAP_DSHOW`) and Media Foundation (`CAP_MSMF`) with pixel-level active validation and privacy shutter detection.
+- **Production Assistive Desktop GUI:** Full text editing suite (Add, Space, Delete Letter, Delete Word, Clear All, and Undo with stack history), bidirectional in-place typing sync, asynchronous Text-to-Speech (TTS), clipboard export, timestamped file logging, and an interactive 26-letter gesture guide.
+- **Automated Verification:** 11-step end-to-end integration test suite (`test_all_features.py`) with a **100% pass rate**.
 
-### System Workflow
+---
 
-```text
-                    Webcam
-                       │
-                       ▼
-                OpenCV Video Capture
-                       │
-                       ▼
-             MediaPipe Hand Detection
-                       │
-                       ▼
-                21 Hand Landmarks
-                       │
-                       ▼
-             Landmark Normalization
-                       │
-                       ▼
-                 63 Features
-                       │
-                       ▼
-             TensorFlow/Keras Model
-                       │
-                       ▼
-                A-Z Classification
-                       │
-                       ▼
-                 Recognized Text
-                       │
-                       ▼
-                Communication Output
+## 📐 System Architecture & Workflow
+
+```
+                        Webcam Video Feed
+                   (Dual-Backend: DirectShow / MSMF)
+                                │
+                                ▼
+                   MediaPipe Hand Landmarker
+                 (Tracks up to 2 Hands, 42 Keypoints)
+                                │
+                                ▼
+         ┌──────────────────────────────────────────────┐
+         │ Spatial Relative-Coordinate Normalization    │
+         │ 1. Deterministic Screen-x Ordering (h1, h2)  │
+         │ 2. Hand 1 (Anchor): P1 - W1 (W1 = 0)         │
+         │ 3. Hand 2 (Relative Vector): P2 - W1         │
+         │ 4. Joint Max-Abs Scale Factor (126 Features) │
+         │ 5. Ambidextrous Dual-Slot 1-Hand Routing     │
+         └──────────────────────┬───────────────────────┘
+                                │
+                                ▼
+         ┌──────────────────────────────────────────────┐
+         │ Deep Neural Classifier (TensorFlow/Keras)    │
+         │ 126 In -> Dense(256) + BatchNorm + Dropout   │
+         │        -> Dense(256) + BatchNorm + Dropout   │
+         │        -> Dense(128) + BatchNorm + Dropout   │
+         │        -> Dense(64)  + BatchNorm             │
+         │        -> Dense(26, Softmax) Output          │
+         └──────────────────────┬───────────────────────┘
+                                │
+                                ▼
+         ┌──────────────────────────────────────────────┐
+         │ Temporal Smoothing & Hold Engine             │
+         │ - Dynamic Confidence Filter (50% - 95%)      │
+         │ - 10-Frame Majority Vote Queue               │
+         │ - Hold-Speed Auto-Confirm (8 - 30 frames)    │
+         │ - Post-Confirm Cooldown & State Lock         │
+         └──────────────────────┬───────────────────────┘
+                                │
+                                ▼
+         ┌──────────────────────────────────────────────┐
+         │ Assistive Graphical User Interface (GUI)     │
+         │ - Live Video Feed (640x480 @ 40+ FPS)        │
+         │ - Text Editing (Add, Space, Del, Undo)       │
+         │ - Bidirectional In-Place Text Box Typing     │
+         │ - Offline Text-to-Speech (pyttsx3)           │
+         │ - Clipboard & Timestamped File Export        │
+         │ - Interactive 26-Letter Sign Guide Modal     │
+         └──────────────────────────────────────────────┘
 ```
 
 ---
 
-# ✨ Features
+## 🔤 Supported Alphabet (26 Classes)
 
-- 🎥 Real-time webcam-based recognition
-- ✋ MediaPipe hand detection
-- 📍 21 hand landmark extraction
-- 🔢 63 numerical features per hand
-- 🤖 TensorFlow/Keras neural network
-- 🔤 Recognition of all **26 alphabet classes (A-Z)**
-- 📊 Confidence score
-- 🔄 Prediction smoothing
-- 🖥️ Graphical user interface
-- 📝 Letter and text formation
-- ␣ Space support
-- ⌫ Backspace support
-- 🗑️ Clear text support
-- 🔊 Text-to-speech support
-- 📈 Accuracy and evaluation metrics
-- 📊 Confusion matrix
-- 📄 Classification report
-- 📚 Complete training and evaluation pipeline
+The system supports all 26 uppercase alphabet letters (`A` through `Z`) according to standardized Indian Sign Language manual conventions:
+
+| Category | Letters | Visual Structure |
+|---|---|---|
+| **Two-Handed Signs (20 Classes)** | `A, B, D, E, F, G, H, J, K, M, N, P, Q, R, S, T, W, X, Y, Z` | Coordinated interaction between dominant and base hand (touch, stacking, intersection) |
+| **Single-Handed Signs (6 Classes)** | `C, I, L, O, U, V` | Standard single-hand finger configurations (supported ambidextrously for left/right hands) |
 
 ---
 
-# 🔤 Supported Alphabet
+## 📊 Model Evaluation & Benchmark Results
 
-The current trained model supports all 26 alphabet classes:
+The model was trained on **62,753 landmark samples** using an 80/20 stratified split and evaluated on **12,551 completely unseen test samples** ([`results/test_data.npz`](file:///results/test_data.npz)).
+
+### Headline Metrics
+| Metric | Value | Significance |
+|---|---|---|
+| **Test Accuracy** | **99.72%** | **12,516 / 12,551 correct classifications** |
+| **Precision (Weighted)** | **99.72%** | Exceptional false positive rejection |
+| **Recall (Weighted)** | **99.72%** | Near-zero false negatives across all classes |
+| **F1-Score (Weighted)** | **99.72%** | Balanced precision-recall performance |
+| **Categorical Test Loss** | **0.0112** | Calibrated posterior probabilities |
+| **Total Test Errors** | **35 / 12,551** | **Total error rate of only 0.28%** |
+| **Inference Latency** | **< 2.0 ms** | Real-time classification on CPU |
+
+### Per-Class Performance Summary
+From [`results/classification_report.txt`](file:///results/classification_report.txt):
 
 ```text
-A  B  C  D  E  F  G  H  I  J  K  L  M
-N  O  P  Q  R  S  T  U  V  W  X  Y  Z
+              precision    recall  f1-score   support
+           A       1.00      1.00      1.00       400
+           B       1.00      1.00      1.00       393
+           C       0.98      0.99      0.99       798
+           D       1.00      1.00      1.00       392
+           E       1.00      1.00      1.00       399
+           F       1.00      1.00      1.00       400
+           G       1.00      1.00      1.00       374
+           H       1.00      1.00      1.00       366
+           I       0.99      1.00      0.99       798
+           J       1.00      1.00      1.00       394
+           K       1.00      1.00      1.00       400
+           L       1.00      0.99      0.99       800
+           M       1.00      1.00      1.00       382
+           N       1.00      1.00      1.00       386
+           O       1.00      1.00      1.00       780
+           P       1.00      1.00      1.00       400
+           Q       1.00      1.00      1.00       399
+           R       1.00      1.00      1.00       382
+           S       1.00      1.00      1.00       400
+           T       1.00      1.00      1.00       400
+           U       0.99      0.98      0.98       794
+           V       1.00      1.00      1.00       789
+           W       1.00      1.00      1.00       381
+           X       1.00      0.99      1.00       351
+           Y       1.00      1.00      1.00       393
+           Z       1.00      1.00      1.00       400
+
+    accuracy                           1.00     12551
+   macro avg       1.00      1.00      1.00     12551
+weighted avg       1.00      1.00      1.00     12551
 ```
 
-> **Note:** This project focuses on alphabet/static sign recognition. It is not a complete natural-language Indian Sign Language translator.
-
 ---
 
-# 🛠️ Technologies Used
+## 🖥️ Graphical User Interface (GUI) Features
 
-| Technology | Purpose |
-|---|---|
-| Python 3.11 | Main programming language |
-| OpenCV | Webcam access and image processing |
-| MediaPipe | Hand detection and landmark extraction |
-| TensorFlow | Machine learning framework |
-| Keras | Neural network implementation |
-| NumPy | Numerical processing |
-| Pandas | Dataset processing |
-| Scikit-learn | Data splitting and evaluation |
-| Matplotlib | Graphs and confusion matrix |
-| Tkinter / CustomTkinter | Graphical interface |
-| pyttsx3 | Text-to-speech |
+The application GUI ([`src/app.py`](file:///src/app.py)) provides a comprehensive assistive communication interface:
 
----
-
-# 💻 System Requirements
-
-Before installing the project, make sure your computer has:
-
-### Hardware
-
-- Windows 10 or Windows 11
-- Webcam
-- At least 4 GB RAM
-- Internet connection for initial setup
-- A reasonably modern CPU
-
-A dedicated GPU is **not required**.
-
-The project can run using the CPU.
-
-### Software
-
-- Python 3.11
-- Git
-- pip
-- Webcam drivers
-
----
-
-# 🐍 Python Version
-
-The project was developed and tested using:
-
-```text
-Python 3.11
+```
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│ 🤟 INDIAN SIGN LANGUAGE RECOGNITION SYSTEM        Camera: [ Camera 0 (DSHOW) ▼] [🔄]  │
+├────────────────────────────────────────┬───────────────────────────────────────────────┤
+│           LIVE VIDEO FEED              │            CURRENT SIGN DETECTION             │
+│ ┌────────────────────────────────────┐ │ ┌───────────────────────────────────────────┐ │
+│ │                                    │ │ │   [  A  ]    Confidence: 99.4%            │ │
+│ │         640 x 480 Video            │ │ │              Status: ✋ 2 Hands Detected  │ │
+│ │     (FPS: 41.2 | HD 1280x720)      │ │ │   Hold Progress: [████████████░░░░]       │ │
+│ │                                    │ │ └───────────────────────────────────────────┘ │
+│ └────────────────────────────────────┘ │            RECOGNIZED SENTENCE                │
+│  [X] Mirror Video   [X] Show Skeleton  │ ┌───────────────────────────────────────────┐ │
+│  [X] Auto-Add Held  [⏸ Pause Detect]   │ │ SIGN LANGUAGE RECOGNITION SYSTEM          │ │
+│  Min Confidence: [───────O────] 70%    │ │                                           │ │
+│  Hold Speed:     [────O───────] 15 fms │ └───────────────────────────────────────────┘ │
+│  Camera: Device 0 [DirectShow]         │  [✓ ADD SIGN]            [⎵ SPACE]            │
+│                                        │  [⌫ DELETE LETTER]       [🗑️ DELETE WORD]     │
+│                                        │  [✕ CLEAR ALL]           [↩ UNDO]             │
+│                                        │  [📋 COPY TEXT]          [💾 SAVE TO FILE]    │
+│                                        │  [🔊 SPEAK SENTENCE (TTS)]                    │
+│                                        │  [📖 SIGN GUIDE]         [✕ EXIT]             │
+└────────────────────────────────────────┴───────────────────────────────────────────────┘
 ```
 
-Python 3.11 is recommended because TensorFlow and MediaPipe compatibility can vary with newer Python versions.
+### 1. Camera & Video Viewport Controls
+- **Live Canvas Display:** 640x480 live stream with smooth 30–45 FPS rendering.
+- **Dynamic Camera Switcher & Rescan:** Dropdown menu listing all probed devices with a one-click rescan button to detect newly connected webcams on the fly.
+- **Mirror Video Toggle:** Horizontally flips video for natural signer perspective.
+- **Landmarks / Skeleton Toggle:** Enables or hides green/yellow skeletal overlays.
+- **Pause / Resume Detection:** Pauses inference without interrupting video playback.
+- **Min Confidence Slider (50% – 95%):** Dynamically filters low-confidence predictions.
+- **Hold Speed Slider (8 – 30 frames):** Customizes sign hold duration (~0.3s to 1.0s).
 
-Check your Python version:
+### 2. Auto-Confirmation & Duplicate Prevention
+- **Visual Progress Bar:** Real-time hold progress fills from 0% to 100%.
+- **State Lock & Cooldown:** Appends exactly one character upon hold completion and activates a 20-frame cooldown, preventing accidental repeated insertions (e.g., preventing `"AAAA"`).
+
+### 3. Complete Text Editing Suite
+- **`✓ ADD SIGN`:** Manually commits current predicted letter.
+- **`⎵ SPACE`:** Inserts word space.
+- **`⌫ DELETE LETTER`:** Backspace removing the last character.
+- **`🗑️ DELETE WORD`:** Removes the last space-separated word in one click.
+- **`✕ CLEAR ALL`:** Clears buffer with automatic safety backup.
+- **`↩ UNDO`:** Dedicated undo history stack (up to 30 past states).
+- **Bidirectional In-Place Text Box:** Interactive `tk.Text` widget allowing direct physical keyboard typing, selecting, and deleting with real-time buffer synchronization.
+- **Live Character & Word Counter:** Displays dynamic sentence metrics.
+
+### 4. Assistive Output & Accessibility
+- **Multi-Threaded Text-to-Speech (TTS):** Speaks formed sentences aloud via `pyttsx3` in an asynchronous background daemon thread without stalling video frames.
+- **Clipboard Export:** One-click copy to Windows system clipboard.
+- **Session File Export:** Appends recognized sentences with ISO timestamps into [`isl_history.txt`](file:///isl_history.txt).
+- **Interactive Gesture Guide Modal:** Popup dialog showing the full 26-letter ISL alphabet grid and best practices.
+
+---
+
+## ⌨️ Global Keyboard Shortcuts
+
+| Shortcut | Action | Description |
+|---|---|---|
+| `Space` | **Add Sign / Space** | Adds current detected sign (or space if no sign is active) |
+| `-` (Minus) | **Add Space** | Inserts a space character |
+| `Backspace` | **Delete Character** | Removes the last character |
+| `Ctrl + Backspace` | **Delete Word** | Deletes the last word |
+| `Delete` | **Clear Text** | Clears the entire text buffer |
+| `Ctrl + Z` | **Undo** | Reverts the last edit action |
+| `Ctrl + C` | **Copy Text** | Copies recognized text to clipboard |
+| `S` | **Speak (TTS)** | Reads the current text buffer aloud |
+| `P` | **Pause / Resume** | Toggles sign detection pause |
+| `Esc` | **Exit** | Gracefully closes the application |
+
+---
+
+## 🧪 Automated Verification Suite (`test_all_features.py`)
+
+The project includes an automated 11-step integration test suite verifying every component from hardware probing to GUI widgets:
 
 ```bash
-python --version
+python test_all_features.py
 ```
 
-Expected:
-
-```text
-Python 3.11.x
-```
+### Verification Results (11/11 Passed):
+- `[TEST 1/11]` Probing Camera Hardware & Validating Physical Webcam **[PASS]**
+- `[TEST 2/11]` Testing AI Model & Input Feature Architecture (126 features, 26 classes) **[PASS]**
+- `[TEST 3/11]` Initializing Camera Feed inside Application **[PASS]**
+- `[TEST 4/11]` Executing live `process_frame()` cycle with image rendering **[PASS]**
+- `[TEST 5/11]` Testing All Text Editing Controls (Add, Backspace, Word Del, Clear, Undo) **[PASS]**
+- `[TEST 6/11]` Testing Direct In-Place Text Box Editing & Event Sync **[PASS]**
+- `[TEST 7/11]` Testing Auto-Confirmation Hold Engine & Cooldown **[PASS]**
+- `[TEST 8/11]` Testing Feature Checkboxes (Mirror, Landmarks, Auto-Add) **[PASS]**
+- `[TEST 9/11]` Testing Pause/Resume Button Invocations **[PASS]**
+- `[TEST 10/11]` Testing Interactive Sign Reference Guide Modal **[PASS]**
+- `[TEST 11/11]` Testing Clipboard Copy and File Save (`isl_history.txt`) **[PASS]**
 
 ---
 
-# 📥 Installation and Setup
+## 🚀 Installation & Quick Start
 
-## Step 1 — Install Python
+### 1. Prerequisites
+- **Operating System:** Windows 10 or Windows 11
+- **Python Version:** Python 3.11 (Recommended for optimal TensorFlow and MediaPipe compatibility)
+- **Hardware:** Standard USB or built-in webcam, 4 GB RAM, dual-core CPU (GPU not required)
 
-Download and install Python 3.11 from:
+### 2. Setup Virtual Environment
+```bash
+# Clone the repository
+git clone https://github.com/AshutoshBunkar/ML_ISL_Model.git
+cd ML_ISL_Model
 
-https://www.python.org/downloads/
-
-During installation on Windows, make sure to enable:
-
-```text
-Add Python to PATH
-```
-
-Verify the installation:
-
-```powershell
-python --version
-```
-
----
-
-## Step 2 — Install Git
-
-If Git is not already installed, download it from:
-
-https://git-scm.com/downloads
-
-Verify:
-
-```powershell
-git --version
-```
-
----
-
-# 📂 Step 3 — Clone the Repository
-
-Open **PowerShell** or **Command Prompt**.
-
-Clone the repository:
-
-```powershell
-git clone https://github.com/YOUR-USERNAME/Indian-Sign-Language-Detection.git
-```
-
-Replace `YOUR-USERNAME` with the actual GitHub username that owns this repository.
-
-Enter the project directory:
-
-```powershell
-cd Indian-Sign-Language-Detection
-```
-
----
-
-# 🐍 Step 4 — Create a Virtual Environment
-
-Creating a virtual environment is recommended so that the project dependencies do not interfere with other Python projects.
-
-Run:
-
-```powershell
+# Create and activate virtual environment
 python -m venv venv
-```
-
-Activate the environment:
-
-```powershell
 venv\Scripts\activate
+
+# Install required dependencies
+pip install -r requirements.txt
 ```
 
-After activation, you should see:
+### 3. Launching the System
+You can launch the system using any of the following methods:
 
-```text
-(venv)
-```
+```bash
+# Option A: One-click Batch launcher (Windows)
+run.bat
 
-at the beginning of your terminal.
+# Option B: Interactive GUI launcher with camera selector
+python run.py
 
-Example:
+# Option C: Direct application launch
+python src/app.py
 
-```text
-(venv) PS C:\Users\User\Indian-Sign-Language-Detection>
+# Option D: Specify preferred camera index
+python src/app.py --camera 0
 ```
 
 ---
 
-# 📦 Step 5 — Install Dependencies
-
-Install all required Python packages:
-
-```powershell
-pip install -r requirements.txt
-```
-
-This installs the libraries required by the project.
-
-If `pip` is outdated, you can update it first:
-
-```powershell
-python -m pip install --upgrade pip
-```
-
-Then:
-
-```powershell
-pip install -r requirements.txt
-```
-
----
-
-# 📁 Project Structure
+## 📂 Project Directory Structure
 
 ```text
-Indian-Sign-Language-Detection/
-│
+ML_ISL_Model/
 ├── dataset/
-│   ├── raw/
-│   ├── processed/
-│   ├── A/
-│   ├── B/
-│   ├── C/
-│   ├── ...
-│   ├── Z/
-│   ├── isl_landmarks.csv
-│   └── isl_landmarks_balanced.csv
-│
+│   ├── isl_two_hand_landmarks.csv     # 62,753 clean 126-feature samples
+│   └── isl_dataset.csv                # Historical single-hand baseline data
 ├── models/
-│   ├── hand_landmarker.task
-│   ├── isl_model.keras
-│   └── labels.npy
-│
+│   ├── isl_model.keras                # Trained two-hand neural network (1.71 MB)
+│   ├── hand_landmarker.task           # MediaPipe vision landmarker model
+│   └── labels.npy                     # 26 alphabet labels (A through Z)
 ├── results/
-│   ├── test_confusion_matrix.png
-│   ├── training_accuracy.png
-│   ├── training_loss.png
-│   └── classification_report.txt
-│
+│   ├── classification_report.txt      # 99.72% test classification report
+│   ├── test_confusion_matrix.png      # 26x26 test confusion matrix plot
+│   ├── test_data.npz                  # 12,551 unseen test vectors & labels
+│   ├── training_accuracy.png          # Training vs validation accuracy curve
+│   ├── training_loss.png              # Training vs validation loss curve
+│   └── training_history.json          # Epoch-by-epoch metrics
 ├── src/
-│   ├── app.py
-│   ├── camera_test.py
-│   ├── check_dataset.py
-│   ├── collect_data.py
-│   ├── evaluate_model.py
-│   ├── hand_detection.py
-│   ├── predict.py
-│   ├── prepare_kaggle_dataset.py
-│   └── train_model.py
-│
-├── README.md
-├── requirements.txt
-├── .gitignore
-├── PROJECT_REPORT.md
-├── PRESENTATION_CONTENT.md
-└── DEMO_GUIDE.md
+│   ├── app.py                         # Production assistive Tkinter GUI application
+│   ├── camera_utils.py                # Multi-backend camera probe & active validator
+│   ├── camera_test.py                 # Standalone diagnostic camera utility
+│   ├── evaluate_model.py              # Offline test benchmark script
+│   ├── train_model.py                 # Neural network training pipeline
+│   ├── collect_two_hand_data.py       # Dual-hand landmark acquisition tool
+│   ├── predict_two_hand.py            # Standalone OpenCV two-hand HUD
+│   └── hand_detection.py              # MediaPipe HandLandmarker wrapper
+├── test_all_features.py               # Comprehensive 11-step automated test suite
+├── run.py                             # Interactive GUI launcher & camera selector
+├── run.bat                            # Windows one-click batch startup script
+├── MODEL_ACCURACY_REPORT.md           # Deep statistical accuracy documentation
+├── PROJECT_REPORT.md                  # Comprehensive academic supervisor report
+├── PRESENTATION_CONTENT.md            # Slide-by-slide presentation deck & defense Q&A
+├── DEMO_GUIDE.md                      # Live demonstration walkthrough script
+├── README.md                          # Master repository documentation
+└── requirements.txt                   # Dependency manifest
 ```
 
 ---
 
-# ▶️ Running the Application
+## 🛠️ Verification & Reproduction Commands
 
-After completing the installation, make sure the virtual environment is activated:
+```bash
+# 1. Run the comprehensive full-feature test suite
+python test_all_features.py
 
-```powershell
-venv\Scripts\activate
-```
+# 2. Evaluate model accuracy on 12,551 unseen test samples
+python src/evaluate_model.py
 
-Then start the main application:
+# 3. Test camera hardware diagnostics and switch backends
+python src/camera_test.py
 
-```powershell
-python src\app.py
-```
-
-The application should open the graphical interface and access your webcam.
-
----
-
-# 📷 How to Use the Application
-
-## 1. Start the Application
-
-Run:
-
-```powershell
-python src\app.py
-```
-
-## 2. Allow Camera Access
-
-If Windows asks for camera permission, select:
-
-```text
-Allow
-```
-
-## 3. Position Your Hand
-
-Place your hand clearly in front of the webcam.
-
-For best results:
-
-- Use good lighting.
-- Keep the hand fully visible.
-- Avoid covering your fingers.
-- Keep the background relatively simple.
-- Keep your hand at a reasonable distance from the camera.
-
-## 4. Make an ISL Alphabet Sign
-
-Make one of the supported alphabet signs:
-
-```text
-A B C D E F G H I J K L M
-N O P Q R S T U V W X Y Z
-```
-
-The system will display the predicted letter and confidence.
-
-Example:
-
-```text
-Sign: A
-Confidence: 96.42%
+# 4. Run standalone OpenCV HUD without GUI
+python src/predict_two_hand.py
 ```
 
 ---
 
-# 🔤 Text Formation
+## 📜 Documentation Suite
 
-The application can use recognized letters to form text.
-
-For example:
-
-```text
-H → E → L → L → O
-```
-
-can produce:
-
-```text
-HELLO
-```
-
-The application provides controls for:
-
-```text
-Add Letter
-Space
-Backspace
-Clear
-Speak
-Exit
-```
-
-This allows individual recognized signs to be combined into words and sentences.
+For exhaustive technical evaluations and presentation materials, refer to:
+- **Academic Project Report:** [`PROJECT_REPORT.md`](file:///PROJECT_REPORT.md)
+- **Deep Statistical Model Evaluation:** [`MODEL_ACCURACY_REPORT.md`](file:///MODEL_ACCURACY_REPORT.md)
+- **Presentation Deck & Defense Q&A:** [`PRESENTATION_CONTENT.md`](file:///PRESENTATION_CONTENT.md)
+- **Live Demonstration Walkthrough:** [`DEMO_GUIDE.md`](file:///DEMO_GUIDE.md)
 
 ---
 
-# 🔊 Text-to-Speech
+## ⚖️ License & Acknowledgements
 
-The application includes text-to-speech functionality.
-
-After forming a word or sentence, use the **Speak** option.
-
-For example:
-
-```text
-HELLO WORLD
-```
-
-can be converted into spoken audio.
-
-Text-to-speech is intended to provide an additional communication output.
-
----
-
-# 🧠 How the Machine Learning System Works
-
-The system uses **MediaPipe Hand Landmarker** to detect a hand.
-
-MediaPipe detects:
-
-```text
-21 hand landmarks
-```
-
-Each landmark contains:
-
-```text
-X coordinate
-Y coordinate
-Z coordinate
-```
-
-Therefore:
-
-```text
-21 landmarks × 3 coordinates = 63 features
-```
-
-The coordinates are normalized relative to the wrist.
-
-The resulting 63-feature vector is passed to the TensorFlow/Keras model.
-
-The model predicts one of 26 classes:
-
-```text
-A-Z
-```
-
----
-
-# 🏗️ Model Architecture
-
-The neural network uses the normalized hand landmark features as input.
-
-The architecture consists of multiple fully connected layers.
-
-Conceptually:
-
-```text
-Input Layer
-63 Features
-     │
-     ▼
-Dense Layer
-128 Neurons
-ReLU
-     │
-     ▼
-Dropout
-     │
-     ▼
-Dense Layer
-64 Neurons
-ReLU
-     │
-     ▼
-Dropout
-     │
-     ▼
-Dense Layer
-32 Neurons
-ReLU
-     │
-     ▼
-Output Layer
-26 Classes
-Softmax
-     │
-     ▼
-A-Z Prediction
-```
-
----
-
-# 🤖 Trained Model Files
-
-The trained model is stored in:
-
-```text
-models/isl_model.keras
-```
-
-The alphabet labels are stored in:
-
-```text
-models/labels.npy
-```
-
-The MediaPipe hand landmark model is stored in:
-
-```text
-models/hand_landmarker.task
-```
-
-These files allow users to run the trained system without retraining the model.
-
----
-
-# 📊 Dataset
-
-The project uses hand-sign data representing the alphabet classes A-Z.
-
-The dataset is processed into numerical hand landmark features.
-
-Each sample contains:
-
-```text
-63 landmark features
-+
-1 alphabet label
-```
-
-The dataset is organized into alphabet classes.
-
-The training pipeline performs an **80/20 stratified train-test split**.
-
-```text
-80% → Training
-20% → Testing
-```
-
-The test data is kept separate from the training process to provide an unbiased evaluation.
-
----
-
-# 📈 Model Evaluation
-
-The project includes a complete evaluation pipeline.
-
-Run:
-
-```powershell
-python src\evaluate_model.py
-```
-
-The evaluation generates:
-
-- Test accuracy
-- Precision
-- Recall
-- F1-score
-- Classification report
-- Confusion matrix
-
-The results are stored inside:
-
-```text
-results/
-```
-
----
-
-# 🎯 Current Model Performance
-
-The current full A-Z model achieved approximately:
-
-```text
-72.77% test accuracy
-```
-
-This value was obtained using the held-out test set.
-
-The actual performance may vary when the model is used with different users, cameras, lighting conditions, backgrounds, and hand positions.
-
-> **Important:** The 72.77% value is the measured performance of the current A-Z model. It should not be interpreted as the accuracy of a complete natural-language ISL translation system.
-
----
-
-# 📊 Confusion Matrix
-
-The evaluation process generates a confusion matrix showing how the model performs for each alphabet class.
-
-The generated file is available in:
-
-```text
-results/test_confusion_matrix.png
-```
-
-The confusion matrix can be used to identify alphabet signs that the model frequently confuses.
-
----
-
-# 🧪 Model Training
-
-Most users do **not** need to train the model because a trained model is already included.
-
-However, developers who want to retrain the model can use the training pipeline.
-
-First validate the dataset:
-
-```powershell
-python src\check_dataset.py
-```
-
-If the dataset is valid, train the model:
-
-```powershell
-python src\train_model.py
-```
-
-After training, evaluate it:
-
-```powershell
-python src\evaluate_model.py
-```
-
-The newly trained model will be saved to:
-
-```text
-models/isl_model.keras
-```
-
----
-
-# 📊 Dataset Validation
-
-Before training, check whether the required A-Z classes are available:
-
-```powershell
-python src\check_dataset.py
-```
-
-The checker verifies the dataset and confirms whether all required alphabet classes are present.
-
-A successful dataset should contain:
-
-```text
-A
-B
-C
-D
-E
-F
-G
-H
-I
-J
-K
-L
-M
-N
-O
-P
-Q
-R
-S
-T
-U
-V
-W
-X
-Y
-Z
-```
-
----
-
-# 📷 Camera Testing
-
-If you want to test the webcam separately, run:
-
-```powershell
-python src\camera_test.py
-```
-
-This checks whether OpenCV can access the camera.
-
-Press:
-
-```text
-Q
-```
-
-to exit the camera test.
-
----
-
-# ✋ Hand Detection Testing
-
-To test MediaPipe hand landmark detection independently, use:
-
-```powershell
-python src\hand_detection.py
-```
-
-This is useful when troubleshooting camera or hand-detection problems.
-
----
-
-# 🔮 Future Scope
-
-The current system focuses on alphabet/static sign recognition.
-
-Future versions could include:
-
-### Dynamic Sign Recognition
-
-Some signs involve movement rather than a single static pose.
-
-Future systems could use:
-
-- LSTM
-- GRU
-- Transformer models
-- Temporal landmark sequences
-
-### Word Recognition
-
-Instead of recognizing individual letters, the system could recognize complete ISL words.
-
-### Sentence Recognition
-
-A future system could translate complete sign-language sentences.
-
-### Larger Vocabulary
-
-The system could be extended from alphabet recognition to hundreds or thousands of ISL signs.
-
-### Additional Visual Features
-
-Future versions could combine:
-
-- Hand landmarks
-- Body pose
-- Facial expressions
-- Head movement
-
-### Mobile Application
-
-The recognition system could eventually be converted into an Android or iOS application.
-
-### Web Application
-
-A browser-based version could allow users to access the system without installing Python.
-
----
-
-# ⚠️ Limitations
-
-This project is primarily a **static alphabet recognition system**.
-
-It should not be described as a complete Indian Sign Language translator.
-
-Some signs involve movement and therefore cannot be fully represented by a single static frame.
-
-For example:
-
-```text
-J
-Z
-```
-
-may require temporal/movement information for reliable recognition.
-
-Other factors that can affect recognition include:
-
-- Poor lighting
-- Low-quality cameras
-- Complex backgrounds
-- Occluded fingers
-- Incorrect hand positioning
-- Different hand orientations
-- Differences between users
-
----
-
-# 🛠️ Troubleshooting
-
-## Camera Does Not Open
-
-Check:
-
-1. Camera is connected.
-2. Windows camera permissions are enabled.
-3. Another application is not using the camera.
-4. Restart the application.
-
-You can also test the camera:
-
-```powershell
-python src\camera_test.py
-```
-
----
-
-## `ModuleNotFoundError`
-
-Make sure the virtual environment is activated:
-
-```powershell
-venv\Scripts\activate
-```
-
-Then reinstall dependencies:
-
-```powershell
-pip install -r requirements.txt
-```
-
----
-
-## TensorFlow / MediaPipe Compatibility Error
-
-Use:
-
-```text
-Python 3.11
-```
-
-and reinstall the packages from:
-
-```text
-requirements.txt
-```
-
-Avoid randomly upgrading TensorFlow or MediaPipe because incompatible versions can cause native-library errors.
-
----
-
-## Model Not Found
-
-Make sure these files exist:
-
-```text
-models/
-├── isl_model.keras
-├── labels.npy
-└── hand_landmarker.task
-```
-
-Then run the application again:
-
-```powershell
-python src\app.py
-```
-
----
-
-## Poor Recognition
-
-Try:
-
-- Better lighting
-- Plain background
-- Keep the entire hand visible
-- Move closer to the camera
-- Avoid rapid movement
-- Keep fingers clearly separated when required
-- Position the hand inside the camera view
-
----
-
-# 🔐 GitHub / Repository Notes
-
-The project uses a `.gitignore` file to prevent unnecessary files from being uploaded.
-
-The following should not normally be committed:
-
-```text
-venv/
-venv_old/
-__pycache__/
-*.pyc
-.env
-```
-
-The trained model files can be included if their size is suitable for the repository.
-
-If a model or dataset is too large for normal GitHub storage, Git Large File Storage (Git LFS) or an external download location may be required.
-
----
-
-# 📄 Additional Documentation
-
-The repository may also contain:
-
-```text
-PROJECT_REPORT.md
-```
-
-Detailed project report and methodology.
-
-```text
-PRESENTATION_CONTENT.md
-```
-
-Presentation material for academic demonstrations.
-
-```text
-DEMO_GUIDE.md
-```
-
-Instructions for demonstrating the project.
-
----
-
-# 🎓 Academic Purpose
-
-This project demonstrates the practical application of:
-
-- Computer Vision
-- Machine Learning
-- Deep Learning
-- Hand Landmark Detection
-- Image Processing
-- Human-Computer Interaction
-- Real-Time AI Systems
-
-It was developed as an academic/MCA project.
-
----
-
-# 👨‍💻 Author
-
-**Melvin Mathew**
-
-
-Interests:
-
-- Artificial Intelligence
-- Machine Learning
-- Computer Vision
-- Cloud Computing
-- Software Development
-
----
-
-# ⭐ Project Goal
-
-The goal of this project is to demonstrate how **Computer Vision and Machine Learning can be used to recognize Indian Sign Language alphabet gestures in real time**.
-
-The current system provides an A-Z alphabet recognition foundation that can be extended in the future toward word-level, sentence-level, and dynamic Indian Sign Language translation.
-
----
-
-## 📜 License
-
-This project is intended primarily for educational and academic purposes.
-
-Please check the licenses and usage terms of any third-party datasets, pretrained models, and libraries before redistributing them.
-
----
-
-## ⭐ If You Find This Project Useful
-
-If this project helps you learn about computer vision, machine learning, or sign-language recognition, consider giving the repository a ⭐ on GitHub.
+Developed as a Major Laboratory Project in Machine Learning & Assistive Computer Vision. Built upon Google MediaPipe, TensorFlow, and the Indian Sign Language Research and Training Centre (ISLRTC) manual alphabet guidelines.

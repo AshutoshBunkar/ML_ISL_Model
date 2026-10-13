@@ -1,5 +1,6 @@
 """
 Camera Test Script for Indian Sign Language Recognition
+Tests physical webcam and any connected video capture devices.
 """
 import sys
 import os
@@ -18,56 +19,52 @@ if os.path.exists(_venv_python):
 
 import cv2
 import time
+import numpy as np
 
-def open_camera(idx):
-    # Try default backend first (RGB webcam is index 0 default)
-    cap = cv2.VideoCapture(idx)
-    if cap.isOpened():
-        ret, frame = cap.read()
-        if ret and frame is not None and frame.size > 0:
-            print(f"Opened camera {idx} [Default backend]: {frame.shape[1]}x{frame.shape[0]}")
-            return cap
-        cap.release()
-
-    # Fallback to DirectShow
-    cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW)
-    if cap.isOpened():
-        ret, frame = cap.read()
-        if ret and frame is not None and frame.size > 0:
-            print(f"Opened camera {idx} [DSHOW backend]: {frame.shape[1]}x{frame.shape[0]}")
-            return cap
-        cap.release()
-
-    return None
+# Import our robust camera utils
+sys.path.insert(0, _script_dir)
+from camera_utils import probe_all_cameras, open_best_camera
 
 def main():
-    camera_idx = 0
+    print("=" * 60)
+    print("       INDIAN SIGN LANGUAGE SYSTEM - WEBCAM TEST")
+    print("=" * 60)
+    print("Probing available camera hardware...")
+
+    probed_devices = probe_all_cameras()
+    print(f"\nFound {len(probed_devices)} camera devices/backends:")
+    for idx, d in enumerate(probed_devices):
+        status_str = "ACTIVE (Normal Image)" if d["is_active"] else "INACTIVE / BLANK (Virtual or Shutter Closed)"
+        print(f"  [{idx}] {d['label']} -> {status_str} (Mean={d['mean']:.1f}, Std={d['std']:.1f})")
+
+    # Determine desired camera
+    target_idx = None
     if len(sys.argv) > 1:
         try:
-            camera_idx = int(sys.argv[1])
+            target_idx = int(sys.argv[1])
+            print(f"\nRequested camera index: {target_idx}")
         except ValueError:
             pass
 
-    print(f"Testing camera index {camera_idx}...")
-    cap = open_camera(camera_idx)
+    cap, active_info = open_best_camera(preferred_idx=target_idx)
     if not cap:
-        alt_idx = 1 if camera_idx == 0 else 0
-        print(f"Camera {camera_idx} failed, trying camera {alt_idx}...")
-        camera_idx = alt_idx
-        cap = open_camera(camera_idx)
-
-    if not cap:
-        print("ERROR: Could not open any camera device. Check camera connections and privacy settings.")
+        print("\nERROR: Could not open any camera device. Check camera connections and privacy settings.")
         sys.exit(1)
 
-    print("Camera running!")
-    print("Controls:")
-    print("  's' = Switch camera (0 <-> 1)")
-    print("  'q' = Exit")
+    print(f"\n>>> Successfully running camera: {active_info['label']}")
+    print(f"Resolution: {active_info['width']}x{active_info['height']}")
+    print("\nControls:")
+    print("  's' or Space = Switch to next available camera")
+    print("  'q' or Esc   = Exit")
+    print("=" * 60)
 
-    window_name = f"Camera Test - Device {camera_idx}"
+    curr_idx = 0
+    window_name = "Camera Test - ISL Recognition"
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(window_name, 640, 480)
+    cv2.resizeWindow(window_name, 800, 600)
+
+    fps_history = []
+    prev_time = time.time()
 
     while True:
         try:
@@ -81,36 +78,66 @@ def main():
             time.sleep(0.02)
             continue
 
-        # Add camera info overlay
+        curr_time = time.time()
+        fps = 1.0 / max(curr_time - prev_time, 0.001)
+        prev_time = curr_time
+        fps_history.append(fps)
+        if len(fps_history) > 30:
+            fps_history.pop(0)
+        avg_fps = sum(fps_history) / len(fps_history)
+
+        mean_brightness = float(np.mean(frame))
+        std_val = float(np.std(frame))
+
+        # Add top banner
+        cv2.rectangle(frame, (0, 0), (frame.shape[1], 45), (20, 20, 20), -1)
+        status_txt = f"{active_info['label']} | {frame.shape[1]}x{frame.shape[0]} @ {avg_fps:.1f} FPS"
+        cv2.putText(frame, status_txt, (15, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
+        # Bottom banner with controls
+        cv2.rectangle(frame, (0, frame.shape[0] - 35), (frame.shape[1], frame.shape[0]), (20, 20, 20), -1)
         cv2.putText(
-            frame, f"Camera Index: {camera_idx} | Press 's' to switch, 'q' to quit",
-            (15, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2
+            frame, "Press 's' to switch camera | 'q' to quit",
+            (15, frame.shape[0] - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (220, 220, 220), 1
         )
+
+        # Check shutter / darkness
+        if mean_brightness < 2.0 and std_val < 2.0:
+            cv2.putText(
+                frame, "WARNING: CAMERA LENS SHUTTER MAY BE CLOSED",
+                (30, frame.shape[0] // 2 - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 0, 255), 2
+            )
+            cv2.putText(
+                frame, "Check physical privacy slider or Fn+F10",
+                (30, frame.shape[0] // 2 + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1
+            )
 
         cv2.imshow(window_name, frame)
         key = cv2.waitKey(1) & 0xFF
 
-        if key == ord('q'):
+        if key in (ord('q'), 27):  # 'q' or Esc
             break
-        elif key == ord('s'):
-            new_idx = 1 if camera_idx == 0 else 0
-            print(f"Switching to camera {new_idx}...")
-            cap.release()
-            cv2.destroyWindow(window_name)
-            new_cap = open_camera(new_idx)
-            if new_cap:
-                camera_idx = new_idx
-                cap = new_cap
-                window_name = f"Camera Test - Device {camera_idx}"
-                cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-                cv2.resizeWindow(window_name, 640, 480)
-            else:
-                print(f"Could not open camera {new_idx}, returning to {camera_idx}")
-                cap = open_camera(camera_idx)
+        elif key in (ord('s'), 32):  # 's' or Space to cycle camera
+            if len(probed_devices) > 1:
+                curr_idx = (curr_idx + 1) % len(probed_devices)
+                next_dev = probed_devices[curr_idx]
+                print(f"Switching to device {curr_idx}: {next_dev['label']}...")
+                cap.release()
+                
+                new_cap = cv2.VideoCapture(next_dev["index"], next_dev["backend"])
+                if new_cap and new_cap.isOpened():
+                    new_cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+                    new_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+                    cap = new_cap
+                    active_info = next_dev
+                    print(f"Successfully switched to {next_dev['label']}")
+                else:
+                    print("Could not switch, reverting to auto-selected best camera.")
+                    cap, active_info = open_best_camera()
 
     cap.release()
     cv2.destroyAllWindows()
-    print("Camera test closed.")
+    print("Camera test finished.")
 
 if __name__ == "__main__":
     main()
