@@ -1,0 +1,683 @@
+{% extends "base.html" %}
+
+{% block title %}Live Studio — Indian Sign Language Recognition{% endblock %}
+
+{% block content %}
+<!-- KPI Summary Cards (SE_PROJECT Metric Style) -->
+<div class="kpi-grid">
+  <div class="kpi-card accent-primary">
+    <div class="kpi-header">
+      <span class="kpi-label">Model Test Accuracy</span>
+      <div class="kpi-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+      </div>
+    </div>
+    <div class="kpi-value">99.72%</div>
+    <div class="kpi-subtext">Evaluated on 12,551 test samples</div>
+  </div>
+
+  <div class="kpi-card accent-warning">
+    <div class="kpi-header">
+      <span class="kpi-label">Alphabet Classes</span>
+      <div class="kpi-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/></svg>
+      </div>
+    </div>
+    <div class="kpi-value">26 Letters</div>
+    <div class="kpi-subtext">A–Z Standard Indian Sign Language</div>
+  </div>
+
+  <div class="kpi-card accent-success">
+    <div class="kpi-header">
+      <span class="kpi-label">Spatial Keypoints</span>
+      <div class="kpi-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="m10 15 5-3-5-3v6Z"/></svg>
+      </div>
+    </div>
+    <div class="kpi-value">42 Points</div>
+    <div class="kpi-subtext">126 Relative Coordinate Features</div>
+  </div>
+
+  <div class="kpi-card accent-info">
+    <div class="kpi-header">
+      <span class="kpi-label">Inference Engine</span>
+      <div class="kpi-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      </div>
+    </div>
+    <div class="kpi-value">&lt; 25 ms</div>
+    <div class="kpi-subtext">Real-time CPU execution @ 40+ FPS</div>
+  </div>
+</div>
+
+<!-- Main 2-Column Interface -->
+<div class="workspace-grid">
+
+  <!-- LEFT COLUMN: CAMERA & TRACKING CONTROLS -->
+  <div>
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title" style="font-size: 1.15rem; margin-bottom: 0.15rem;">Live Vision &amp; Spatial Tracker</h2>
+          <p class="panel-subtitle">MediaPipe 42-point hand keypoint pipeline &amp; relative coordinate normalization</p>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <span id="stream-badge" class="badge badge-completed">
+            <span class="beacon beacon-pulse"></span>
+            <span id="stream-badge-text">STREAM ONLINE</span>
+          </span>
+        </div>
+      </div>
+
+      <div class="panel-body" style="padding: 1.25rem;">
+        <!-- Live Video Viewport -->
+        <div class="video-container" id="video-wrapper">
+          <!-- Server stream image -->
+          <img id="server-stream" src="/video_feed" class="video-stream-img mirrored" alt="ISL Camera Stream" onerror="handleStreamError()">
+          <!-- Browser webcam fallback video & canvas -->
+          <video id="client-video" class="video-element mirrored d-none" autoplay playsinline muted></video>
+          <canvas id="client-canvas" class="d-none"></canvas>
+
+          <!-- Floating HUD Overlay -->
+          <div class="video-hud-overlay">
+            <div class="hud-pill">
+              <span class="beacon beacon-pulse" style="background: #10b981; color: #10b981;"></span>
+              <span id="hud-camera-name">Webcam HD</span>
+            </div>
+            <div class="hud-pill">
+              <span id="hud-hands-count">✋ 2 Hands Tracked</span>
+            </div>
+            <div class="hud-pill">
+              <span id="hud-fps-val">38.5 FPS</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Video & AI Option Controls -->
+        <div class="video-controls-bar">
+          <div class="toggle-group">
+            <label class="custom-switch">
+              <input type="checkbox" id="toggle-mirror" checked onchange="toggleMirror(this.checked)">
+              <span>Mirror Feed</span>
+            </label>
+            <label class="custom-switch">
+              <input type="checkbox" id="toggle-skeleton" checked onchange="toggleSkeleton(this.checked)">
+              <span>Landmarks Skeleton</span>
+            </label>
+            <label class="custom-switch">
+              <input type="checkbox" id="toggle-auto-add" checked onchange="toggleAutoAdd(this.checked)">
+              <span>Auto-Add Held Sign</span>
+            </label>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-pause-detection" onclick="togglePauseDetection()" style="margin-left: auto;">
+              ⏸ Pause
+            </button>
+          </div>
+
+          <!-- Fine-Tuning Range Sliders -->
+          <div class="slider-row">
+            <div class="slider-group">
+              <div class="slider-header">
+                <span>Min Confidence</span>
+                <span id="conf-val-label" class="text-brand">70%</span>
+              </div>
+              <input type="range" class="custom-range" id="slider-conf" min="50" max="95" value="70" oninput="updateConf(this.value)">
+            </div>
+            <div class="slider-group">
+              <div class="slider-header">
+                <span>Hold Speed</span>
+                <span id="hold-val-label" class="text-brand">15 frames (~0.5s)</span>
+              </div>
+              <input type="range" class="custom-range" id="slider-hold" min="8" max="30" value="15" oninput="updateHold(this.value)">
+            </div>
+          </div>
+
+          <!-- Source & Mode Selector -->
+          <div style="display: flex; gap: 0.75rem; align-items: center; border-top: 1px solid var(--border-subtle); padding-top: 0.75rem;">
+            <label class="form-label" style="margin: 0; white-space: nowrap; font-size: 0.78rem;">Camera Feed:</label>
+            <select id="camera-select" class="form-select" style="font-size: 0.8125rem; padding: 0.35rem 0.65rem;" onchange="changeCamera(this.value)">
+              <option value="0">Camera 0 (Default / DirectShow)</option>
+              <option value="1">Camera 1 (Secondary)</option>
+              <option value="browser">Browser Webcam (Client-side HTML5)</option>
+            </select>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="rescanCameras()" title="Rescan hardware cameras">
+              🔄 Rescan
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT COLUMN: SIGN DETECTION & SENTENCE EDITING STUDIO -->
+  <div>
+    <!-- Card 1: Live Detected Sign -->
+    <div class="sign-hero-card">
+      <div class="sign-char-badge" id="sign-big-char">...</div>
+      <div class="sign-meta-body">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
+          <h3 style="font-size: 1.05rem; font-family: var(--font-display); font-weight: 700;">Current Recognition</h3>
+          <span id="sign-confidence-badge" class="badge badge-brand">0.0% Confidence</span>
+        </div>
+        <p id="sign-status-text" style="font-size: 0.8125rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
+          Waiting for hand gestures in camera view...
+        </p>
+
+        <!-- Stability Hold Progress Bar -->
+        <div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--text-muted); font-weight: 600;">
+          <span>Hold Stability Auto-Confirm</span>
+          <span id="hold-pct-text">0%</span>
+        </div>
+        <div class="hold-progress-track">
+          <div class="hold-progress-fill" id="hold-fill-bar"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card 2: Recognized Sentence & Complete Assistive Text Editing Suite -->
+    <div class="sentence-panel">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+        <div>
+          <h3 style="font-size: 1.05rem; font-family: var(--font-display); font-weight: 700; margin-bottom: 0.15rem;">
+            Recognized Sentence Buffer
+          </h3>
+          <span id="char-word-counter" style="font-size: 0.78rem; color: var(--text-muted); font-weight: 500;">
+            0 characters &bull; 0 words
+          </span>
+        </div>
+        <span id="last-action-pill" class="badge badge-completed d-none">Auto-Added</span>
+      </div>
+
+      <!-- Interactive Editable Textarea -->
+      <textarea id="sentence-input" class="sentence-textarea" placeholder="Signed letters and words will assemble here... (You can also type directly with your keyboard)" oninput="handleManualTextChange()"></textarea>
+
+      <!-- Matrix of Action Buttons (SE_PROJECT Themed) -->
+      <div class="button-matrix">
+        <button type="button" class="btn btn-ctablk" onclick="addCurrentSign()" id="btn-add-sign">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+          ✓ Add Sign
+        </button>
+
+        <button type="button" class="btn btn-secondary" onclick="addSpace()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 16v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2"/></svg>
+          ⎵ Space
+        </button>
+
+        <button type="button" class="btn btn-secondary" onclick="deleteLetter()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"/><line x1="18" y1="9" x2="12" y2="15"/><line x1="12" y1="9" x2="18" y2="15"/></svg>
+          ⌫ Backspace
+        </button>
+
+        <button type="button" class="btn btn-outline-danger" onclick="deleteWord()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          🗑️ Delete Word
+        </button>
+
+        <button type="button" class="btn btn-danger" onclick="clearText()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+          ✕ Clear All
+        </button>
+
+        <button type="button" class="btn btn-secondary" onclick="undoText()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+          ↩ Undo
+        </button>
+
+        <button type="button" class="btn btn-secondary" onclick="copySentence()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+          📋 Copy Text
+        </button>
+
+        <button type="button" class="btn btn-secondary" onclick="saveSentenceToFile()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+          💾 Save Session
+        </button>
+
+        <button type="button" class="btn btn-brand full-width-btn" onclick="speakSentence()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+          🔊 Speak Sentence (Text-to-Speech)
+        </button>
+      </div>
+    </div>
+
+    <!-- Live Event Activity Stream (SE_PROJECT .urlrow style) -->
+    <div class="panel">
+      <div class="panel-header" style="padding: 0.85rem 1.25rem;">
+        <span class="panel-title" style="font-size: 0.95rem;">Live Activity Feed</span>
+        <button class="btn btn-secondary btn-sm" style="padding: 0.2rem 0.5rem; font-size: 0.72rem;" onclick="clearLog()">Clear Log</button>
+      </div>
+      <div class="panel-body" id="activity-log" style="padding: 0.85rem 1.25rem; max-height: 190px; overflow-y: auto;">
+        <div class="urlrow">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 14 14"/></svg>
+          <span>System initialized with Indian Sign Language Deep Neural Classifier (99.72% Accuracy).</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // State management
+  let currentSign = "...";
+  let currentConfidence = 0.0;
+  let numHandsDetected = 0;
+  let isPaused = false;
+  let autoAddEnabled = true;
+  let minConfidenceThreshold = 70;
+  let holdSpeedFrames = 15;
+  let holdCounter = 0;
+  let lastCommittedSign = null;
+  let cooldownCounter = 0;
+  const COOLDOWN_MAX = 20;
+
+  // Text buffer & undo stack
+  let textBuffer = "";
+  let undoStack = [];
+
+  // Polling timer
+  let statusPollInterval = null;
+
+  document.addEventListener('DOMContentLoaded', () => {
+    startStatusPolling();
+    setupKeyboardShortcuts();
+    updateCounter();
+  });
+
+  // Poll status from FastAPI backend
+  function startStatusPolling() {
+    statusPollInterval = setInterval(async () => {
+      if (isPaused) return;
+      try {
+        const res = await fetch('/api/status');
+        if (!res.ok) return;
+        const data = await res.json();
+
+        currentSign = data.predicted_label || "...";
+        currentConfidence = data.confidence || 0.0;
+        numHandsDetected = data.num_hands || 0;
+
+        // Update HUD
+        document.getElementById('hud-fps-val').innerText = `${data.fps.toFixed(1)} FPS`;
+        document.getElementById('hud-hands-count').innerText = 
+          numHandsDetected === 2 ? "✋ 2 Hands Tracked" :
+          numHandsDetected === 1 ? "✋ 1 Hand Tracked" : "No Hands Detected";
+
+        // Update Big Sign Card
+        const bigCharElem = document.getElementById('sign-big-char');
+        bigCharElem.innerText = currentSign;
+
+        const confBadge = document.getElementById('sign-confidence-badge');
+        confBadge.innerText = `${currentConfidence.toFixed(1)}% Confidence`;
+
+        const statusElem = document.getElementById('sign-status-text');
+        if (numHandsDetected > 0 && currentSign !== "...") {
+          statusElem.innerText = `Recognized class '${currentSign}' via ${numHandsDetected} hand landmarks.`;
+        } else {
+          statusElem.innerText = "Place 1 or 2 hands in webcam frame to begin signing.";
+        }
+
+        // Auto-confirmation state machine
+        if (autoAddEnabled && currentSign !== "..." && currentSign !== "Unknown" && currentConfidence >= minConfidenceThreshold) {
+          if (cooldownCounter > 0) {
+            cooldownCounter--;
+            setHoldBar(0);
+          } else {
+            holdCounter++;
+            const pct = Math.min(100, Math.round((holdCounter / holdSpeedFrames) * 100));
+            setHoldBar(pct);
+
+            if (holdCounter >= holdSpeedFrames) {
+              if (currentSign !== lastCommittedSign) {
+                commitSign(currentSign, true);
+                lastCommittedSign = currentSign;
+                cooldownCounter = COOLDOWN_MAX;
+                holdCounter = 0;
+                setHoldBar(0);
+              }
+            }
+          }
+        } else {
+          holdCounter = Math.max(0, holdCounter - 1);
+          setHoldBar(Math.round((holdCounter / holdSpeedFrames) * 100));
+          if (currentSign !== lastCommittedSign) {
+            lastCommittedSign = null;
+          }
+        }
+
+      } catch (err) {
+        console.debug("Status polling wait", err);
+      }
+    }, 120);
+  }
+
+  function setHoldBar(pct) {
+    document.getElementById('hold-fill-bar').style.width = `${pct}%`;
+    document.getElementById('hold-pct-text').innerText = `${pct}%`;
+  }
+
+  function commitSign(letter, isAuto = false) {
+    pushUndo();
+    textBuffer += letter;
+    syncTextBuffer();
+    logEvent(isAuto ? `Auto-confirmed letter '${letter}'` : `Manually added letter '${letter}'`);
+    showActionPill(isAuto ? `Auto-Added: ${letter}` : `Added: ${letter}`);
+  }
+
+  function addCurrentSign() {
+    if (currentSign && currentSign !== "..." && currentSign !== "Unknown") {
+      commitSign(currentSign, false);
+    } else {
+      showToast("No valid sign detected to add.");
+    }
+  }
+
+  function addSpace() {
+    pushUndo();
+    textBuffer += " ";
+    syncTextBuffer();
+    logEvent("Added space word separator");
+    showActionPill("Space Added");
+  }
+
+  function deleteLetter() {
+    if (textBuffer.length > 0) {
+      pushUndo();
+      const removed = textBuffer[textBuffer.length - 1];
+      textBuffer = textBuffer.slice(0, -1);
+      syncTextBuffer();
+      logEvent(`Deleted character '${removed}'`);
+      showActionPill(`Deleted '${removed}'`);
+    }
+  }
+
+  function deleteWord() {
+    if (!textBuffer) return;
+    pushUndo();
+    const trimmed = textBuffer.trimEnd();
+    const lastSpace = trimmed.lastIndexOf(" ");
+    if (lastSpace === -1) {
+      textBuffer = "";
+    } else {
+      textBuffer = trimmed.substring(0, lastSpace + 1);
+    }
+    syncTextBuffer();
+    logEvent("Deleted last word");
+    showActionPill("Deleted Word");
+  }
+
+  function clearText() {
+    if (!textBuffer) return;
+    pushUndo();
+    textBuffer = "";
+    syncTextBuffer();
+    logEvent("Cleared sentence buffer");
+    showToast("Sentence cleared (Click Undo to restore)");
+  }
+
+  function undoText() {
+    if (undoStack.length > 0) {
+      textBuffer = undoStack.pop();
+      syncTextBuffer();
+      logEvent("Undone last modification");
+      showToast("Undone last edit");
+    } else {
+      showToast("Nothing to undo");
+    }
+  }
+
+  function pushUndo() {
+    if (undoStack.length === 0 || undoStack[undoStack.length - 1] !== textBuffer) {
+      undoStack.push(textBuffer);
+      if (undoStack.length > 30) undoStack.shift();
+    }
+  }
+
+  function syncTextBuffer() {
+    const input = document.getElementById('sentence-input');
+    input.value = textBuffer;
+    updateCounter();
+  }
+
+  function handleManualTextChange() {
+    const val = document.getElementById('sentence-input').value;
+    if (val !== textBuffer) {
+      pushUndo();
+      textBuffer = val;
+      updateCounter();
+    }
+  }
+
+  function updateCounter() {
+    const chars = textBuffer.length;
+    const words = textBuffer.trim() ? textBuffer.trim().split(/\s+/).length : 0;
+    document.getElementById('char-word-counter').innerText = `${chars} characters • ${words} words`;
+  }
+
+  function copySentence() {
+    if (!textBuffer.trim()) {
+      showToast("Sentence buffer is empty");
+      return;
+    }
+    copyToClipboard(textBuffer, "Sentence copied to clipboard!");
+  }
+
+  async function saveSentenceToFile() {
+    if (!textBuffer.trim()) {
+      showToast("Nothing to save");
+      return;
+    }
+    try {
+      const res = await fetch('/api/history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: textBuffer.trim() })
+      });
+      if (res.ok) {
+        showToast("✓ Saved sentence to isl_history.txt");
+        logEvent(`Saved to history: "${textBuffer.trim()}"`);
+      } else {
+        showToast("Error saving to history");
+      }
+    } catch (e) {
+      showToast("Error saving history file");
+    }
+  }
+
+  function speakSentence() {
+    if (!textBuffer.trim()) {
+      showToast("No sentence to speak");
+      return;
+    }
+
+    logEvent(`Speaking: "${textBuffer.trim()}"`);
+    showToast(`🔊 Speaking...`);
+
+    // Use Web Speech API for instant client audio playback
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(textBuffer);
+      utterance.rate = 0.95;
+      utterance.pitch = 1.0;
+      window.speechSynthesis.speak(utterance);
+    } else {
+      // Backend TTS fallback
+      fetch('/api/speak', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: textBuffer })
+      });
+    }
+  }
+
+  function toggleMirror(checked) {
+    const img = document.getElementById('server-stream');
+    const vid = document.getElementById('client-video');
+    if (checked) {
+      img.classList.add('mirrored');
+      vid.classList.add('mirrored');
+    } else {
+      img.classList.remove('mirrored');
+      vid.classList.remove('mirrored');
+    }
+    fetch(`/api/config?mirror=${checked}`, { method: 'POST' });
+  }
+
+  function toggleSkeleton(checked) {
+    fetch(`/api/config?landmarks=${checked}`, { method: 'POST' });
+    showToast(checked ? "Landmarks skeleton enabled" : "Skeleton overlay hidden");
+  }
+
+  function toggleAutoAdd(checked) {
+    autoAddEnabled = checked;
+    showToast(checked ? "Auto-Add enabled" : "Auto-Add disabled (Manual typing mode)");
+  }
+
+  function togglePauseDetection() {
+    isPaused = !isPaused;
+    const btn = document.getElementById('btn-pause-detection');
+    const badge = document.getElementById('stream-badge');
+    const badgeText = document.getElementById('stream-badge-text');
+
+    if (isPaused) {
+      btn.innerText = "▶ Resume";
+      btn.classList.add('btn-brand');
+      btn.classList.remove('btn-secondary');
+      badge.className = "badge badge-warning";
+      badgeText.innerText = "PAUSED";
+      document.getElementById('sign-big-char').innerText = "PAUSED";
+      document.getElementById('sign-big-char').style.fontSize = "1.5rem";
+      showToast("Recognition paused");
+    } else {
+      btn.innerText = "⏸ Pause";
+      btn.classList.remove('btn-brand');
+      btn.classList.add('btn-secondary');
+      badge.className = "badge badge-completed";
+      badgeText.innerText = "STREAM ONLINE";
+      document.getElementById('sign-big-char').style.fontSize = "3.25rem";
+      showToast("Recognition resumed");
+    }
+  }
+
+  function updateConf(val) {
+    minConfidenceThreshold = parseInt(val);
+    document.getElementById('conf-val-label').innerText = `${val}%`;
+    fetch(`/api/config?conf=${val}`, { method: 'POST' });
+  }
+
+  function updateHold(val) {
+    holdSpeedFrames = parseInt(val);
+    const secs = (val / 30).toFixed(1);
+    document.getElementById('hold-val-label').innerText = `${val} frames (~${secs}s)`;
+    fetch(`/api/config?hold=${val}`, { method: 'POST' });
+  }
+
+  function showActionPill(text) {
+    const pill = document.getElementById('last-action-pill');
+    pill.innerText = text;
+    pill.classList.remove('d-none');
+    setTimeout(() => pill.classList.add('d-none'), 2000);
+  }
+
+  function logEvent(msg) {
+    const log = document.getElementById('activity-log');
+    const row = document.createElement('div');
+    row.className = 'urlrow';
+    const time = new Date().toLocaleTimeString();
+    row.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ff6b00" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> <span class="urlpath">[${time}]</span> <span>${msg}</span>`;
+    log.prepend(row);
+    if (log.children.length > 25) log.removeChild(log.lastChild);
+  }
+
+  function clearLog() {
+    document.getElementById('activity-log').innerHTML = '';
+  }
+
+  function setupKeyboardShortcuts() {
+    window.addEventListener('keydown', (e) => {
+      // Don't intercept if user is typing directly inside text box
+      if (document.activeElement === document.getElementById('sentence-input')) {
+        return;
+      }
+      if (e.code === 'Space') {
+        e.preventDefault();
+        addCurrentSign();
+      } else if (e.key === '-') {
+        e.preventDefault();
+        addSpace();
+      } else if (e.code === 'Backspace') {
+        e.preventDefault();
+        deleteLetter();
+      } else if (e.code === 'KeyS') {
+        speakSentence();
+      } else if (e.code === 'KeyP') {
+        togglePauseDetection();
+      }
+    });
+  }
+
+  function handleStreamError() {
+    console.warn("Backend stream failed or initializing, switching to standby...");
+    document.getElementById('hud-camera-name').innerText = "Standby / Loading...";
+  }
+
+  function changeCamera(val) {
+    if (val === 'browser') {
+      enableBrowserWebcam();
+    } else {
+      disableBrowserWebcam();
+      fetch(`/api/camera?idx=${val}`, { method: 'POST' });
+      document.getElementById('server-stream').src = `/video_feed?cam=${val}&t=${Date.now()}`;
+      showToast(`Switched to Camera ${val}`);
+    }
+  }
+
+  async function rescanCameras() {
+    showToast("Rescanning hardware camera devices...");
+    const res = await fetch('/api/cameras');
+    if (res.ok) {
+      const cams = await res.json();
+      const sel = document.getElementById('camera-select');
+      sel.innerHTML = '';
+      cams.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c.index;
+        opt.innerText = c.label;
+        sel.appendChild(opt);
+      });
+      const bOpt = document.createElement('option');
+      bOpt.value = 'browser';
+      bOpt.innerText = 'Browser Webcam (HTML5)';
+      sel.appendChild(bOpt);
+      showToast(`Discovered ${cams.length} physical camera(s).`);
+    }
+  }
+
+  // Optional HTML5 client-side camera
+  let clientStream = null;
+  async function enableBrowserWebcam() {
+    try {
+      clientStream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+      const vid = document.getElementById('client-video');
+      vid.srcObject = clientStream;
+      vid.classList.remove('d-none');
+      document.getElementById('server-stream').classList.add('d-none');
+      document.getElementById('hud-camera-name').innerText = "Browser Webcam";
+      showToast("Switched to Browser Webcam");
+    } catch (err) {
+      showToast("Could not access browser webcam: " + err.message);
+    }
+  }
+
+  function disableBrowserWebcam() {
+    if (clientStream) {
+      clientStream.getTracks().forEach(t => t.stop());
+      clientStream = null;
+    }
+    document.getElementById('client-video').classList.add('d-none');
+    document.getElementById('server-stream').classList.remove('d-none');
+    document.getElementById('hud-camera-name').innerText = "Server Webcam";
+  }
+</script>
+{% endblock %}

@@ -1,0 +1,212 @@
+{% extends "base.html" %}
+
+{% block title %}Model Benchmarks — Indian Sign Language Recognition{% endblock %}
+
+{% block content %}
+<div class="breadcrumbs">
+  <a href="/">Live Studio</a>
+  <span>/</span>
+  <span style="color: var(--text-primary);">Model Evaluation Benchmarks</span>
+</div>
+
+<!-- 4 KPI Headline Cards -->
+<div class="kpi-grid">
+  <div class="kpi-card accent-primary">
+    <div class="kpi-header">
+      <span class="kpi-label">Test Set Accuracy</span>
+      <div class="kpi-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+      </div>
+    </div>
+    <div class="kpi-value">99.72%</div>
+    <div class="kpi-subtext">Evaluated on 12,551 held-out test samples</div>
+  </div>
+
+  <div class="kpi-card accent-success">
+    <div class="kpi-header">
+      <span class="kpi-label">Macro Average F1</span>
+      <div class="kpi-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+      </div>
+    </div>
+    <div class="kpi-value">99.72%</div>
+    <div class="kpi-subtext">Weighted F1: 99.72% across all 26 classes</div>
+  </div>
+
+  <div class="kpi-card accent-warning">
+    <div class="kpi-header">
+      <span class="kpi-label">100% Flawless Classes</span>
+      <div class="kpi-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="m10 15 5-3-5-3v6Z"/></svg>
+      </div>
+    </div>
+    <div class="kpi-value">19 of 26</div>
+    <div class="kpi-subtext">Achieve 100.0% precision &amp; recall</div>
+  </div>
+
+  <div class="kpi-card accent-info">
+    <div class="kpi-header">
+      <span class="kpi-label">Benchmark Total Errors</span>
+      <div class="kpi-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      </div>
+    </div>
+    <div class="kpi-value">35 Total</div>
+    <div class="kpi-subtext">Out of 12,551 samples (0.28% error rate)</div>
+  </div>
+</div>
+
+<!-- Main Table Panel: Per-Class Classification Report -->
+<div class="panel" style="margin-bottom: 2rem;">
+  <div class="panel-header">
+    <div>
+      <h2 class="panel-title">Per-Class Alphabet Classification Performance</h2>
+      <p class="panel-subtitle">Comprehensive precision, recall, and F1-score evaluation benchmark</p>
+    </div>
+    <span class="badge badge-completed">
+      <span class="beacon beacon-pulse"></span>
+      12,551 Benchmark Samples
+    </span>
+  </div>
+
+  <div class="filter-bar">
+    <div class="filter-pills">
+      <button class="filter-pill active" onclick="filterReport('ALL', this)">All Classes (26)</button>
+      <button class="filter-pill" onclick="filterReport('FLAWLESS', this)">100% Flawless (19)</button>
+      <button class="filter-pill" onclick="filterReport('HIGH', this)">High Precision &gt;98% (7)</button>
+    </div>
+
+    <div class="search-box">
+      <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      <input type="text" id="report-search" class="form-input" placeholder="Search class (e.g., A, M, X)..." oninput="searchReport(this.value)">
+    </div>
+  </div>
+
+  <div class="table-wrapper">
+    <table id="benchmarks-table">
+      <thead>
+        <tr>
+          <th>Class</th>
+          <th>Configuration</th>
+          <th>Precision</th>
+          <th>Recall</th>
+          <th>F1-Score</th>
+          <th>Test Support</th>
+          <th style="text-align: right;">Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in report_rows %}
+        <tr class="report-row" data-flawless="{{ 'true' if row.f1 == '1.00' else 'false' }}">
+          <td>
+            <div style="display: flex; align-items: center; gap: 0.65rem;">
+              <span class="alphabet-letter-pill" style="width: 28px; height: 28px; font-size: 0.95rem;">{{ row.letter }}</span>
+              <strong style="font-family: var(--font-display); font-size: 0.95rem;">Letter {{ row.letter }}</strong>
+            </div>
+          </td>
+          <td>
+            <span class="badge {% if row.hand_type == 'Two-Handed' %}badge-warning{% else %}badge-completed{% endif %}">
+              {{ row.hand_type }}
+            </span>
+          </td>
+          <td><code>{{ row.precision }}</code></td>
+          <td><code>{{ row.recall }}</code></td>
+          <td><code>{{ row.f1 }}</code></td>
+          <td><span class="tabular-nums">{{ row.support }} samples</span></td>
+          <td style="text-align: right;">
+            {% if row.f1 == '1.00' %}
+            <span class="badge badge-completed">100.0% Perfect</span>
+            {% else %}
+            <span class="badge badge-info">{{ row.f1_pct }}% Accuracy</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Architecture & Spatial Normalization Innovation -->
+<div class="hro-crmx">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+    <div class="frmbdg">
+      <span class="anmsrch">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="2" y1="12" x2="22" y2="12"/>
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+        </svg>
+      </span>
+      Architecture &amp; Mathematical Normalization Engine
+    </div>
+    <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">ISL Mathematical Formulation</span>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem;">
+    <div class="ftr-crd">
+      <div class="ftribx">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      </div>
+      <h3 style="font-size: 1.05rem; font-family: var(--font-display); margin-bottom: 0.35rem;">Deterministic Screen-x Sorting</h3>
+      <p style="font-size: 0.8125rem; color: var(--text-secondary); line-height: 1.6; margin: 0;">
+        MediaPipe landmarkers frequently flip hand identities (Left vs Right) during two-handed interactions. We sort hands deterministically based on screen-x wrist position ($h_1.x \le h_2.x$), eliminating classification flipping completely.
+      </p>
+    </div>
+
+    <div class="ftr-crd">
+      <div class="ftribx">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      </div>
+      <h3 style="font-size: 1.05rem; font-family: var(--font-display); margin-bottom: 0.35rem;">Relative Coordinate Normalization</h3>
+      <p style="font-size: 0.8125rem; color: var(--text-secondary); line-height: 1.6; margin: 0;">
+        Hand 1 is anchored to its wrist ($P_1 - W_1 = 0$). Hand 2 is anchored relative to Hand 1's wrist ($P_2 - W_1$), preserving the critical physical distance vector between both interacting hands across 126 coordinate features.
+      </p>
+    </div>
+
+    <div class="ftr-crd">
+      <div class="ftribx">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 7h10v10H7z"/></svg>
+      </div>
+      <h3 style="font-size: 1.05rem; font-family: var(--font-display); margin-bottom: 0.35rem;">Deep Neural Network Topology</h3>
+      <p style="font-size: 0.8125rem; color: var(--text-secondary); line-height: 1.6; margin: 0;">
+        Input(126) $\to$ Dense(256) + BatchNorm + Dropout(0.2) $\to$ Dense(256) + BatchNorm + Dropout(0.2) $\to$ Dense(128) $\to$ Dense(64) $\to$ Dense(26, Softmax). Total 177,754 parameters trained for 50 epochs.
+      </p>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function filterReport(type, btn) {
+    document.querySelectorAll('.filter-pill').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+
+    const rows = document.querySelectorAll('.report-row');
+    rows.forEach(r => {
+      const isFlawless = r.getAttribute('data-flawless') === 'true';
+      if (type === 'ALL') {
+        r.style.display = '';
+      } else if (type === 'FLAWLESS') {
+        r.style.display = isFlawless ? '' : 'none';
+      } else if (type === 'HIGH') {
+        r.style.display = !isFlawless ? '' : 'none';
+      }
+    });
+  }
+
+  function searchReport(q) {
+    q = q.trim().toUpperCase();
+    const rows = document.querySelectorAll('.report-row');
+    rows.forEach(r => {
+      const text = r.innerText.toUpperCase();
+      if (!q || text.includes(q)) {
+        r.style.display = '';
+      } else {
+        r.style.display = 'none';
+      }
+    });
+  }
+</script>
+{% endblock %}

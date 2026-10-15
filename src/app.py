@@ -330,10 +330,10 @@ class ISLApp:
     # ==================================================
 
     def _create_gui(self):
-        """Construct the Tkinter interface with complete controls."""
+        """Construct the Tkinter interface styled with the SE_PROJECT design theme."""
         self.root = tk.Tk()
         self.root.title("Indian Sign Language Recognition System")
-        self.root.configure(bg="#121826")
+        self.root.configure(bg="#fafafa")
         self.root.resizable(False, False)
 
         # Bring window to front
@@ -342,45 +342,71 @@ class ISLApp:
         self.root.after(800, lambda: self.root.attributes('-topmost', False))
         self.root.focus_force()
 
-        # Fonts
-        title_font = ("Segoe UI", 14, "bold")
-        heading_font = ("Segoe UI", 11, "bold")
+        # Fonts (Space Grotesk display style)
+        try:
+            title_font = ("Space Grotesk", 13, "bold")
+            heading_font = ("Space Grotesk", 11, "bold")
+        except Exception:
+            title_font = ("Segoe UI", 13, "bold")
+            heading_font = ("Segoe UI", 11, "bold")
+
         label_font = ("Segoe UI", 10)
-        text_font = ("Consolas", 14)
+        text_font = ("Consolas", 13)
         btn_font = ("Segoe UI", 9, "bold")
         small_font = ("Segoe UI", 8)
 
-        # Color tokens
-        bg_dark = "#121826"
-        card_bg = "#1a2234"
-        accent_blue = "#0f3460"
-        highlight_cyan = "#00d4ff"
-        success_green = "#00e676"
-        warning_yellow = "#ffd600"
-        danger_red = "#ff4757"
-        text_light = "#f1f2f6"
+        # SE_PROJECT Theme Color Tokens
+        bg_canvas = "#fafafa"
+        card_bg = "#ffffff"
+        border_col = "#e2e8f0"
+        color_brand = "#ff6b00"
+        color_brand_subtle = "#fff0e6"
+        color_primary = "#000000"
+        color_success = "#10b981"
+        color_danger = "#ef4444"
+        text_primary = "#111827"
+        text_secondary = "#4b5563"
+        text_muted = "#6b7280"
 
         # --------------------------------------------------
-        # TOP HEADER
+        # TOP HEADER (SE_PROJECT Navbar style: White with subtle border)
         # --------------------------------------------------
-        header_frame = tk.Frame(self.root, bg=accent_blue, padx=15, pady=8)
+        header_frame = tk.Frame(self.root, bg="#ffffff", padx=16, pady=10, bd=1, relief="solid")
         header_frame.pack(fill="x")
+
+        # Brand Logo Box
+        logo_box = tk.Label(
+            header_frame, text="ISL", font=("Segoe UI", 10, "bold"),
+            bg=color_brand, fg="#ffffff", padx=6, pady=2
+        )
+        logo_box.pack(side="left", padx=(0, 8))
 
         title_lbl = tk.Label(
             header_frame,
-            text="🤟 INDIAN SIGN LANGUAGE RECOGNITION SYSTEM",
+            text="INDIAN SIGN LANGUAGE RECOGNITION",
             font=title_font,
-            fg="white",
-            bg=accent_blue
+            fg=text_primary,
+            bg="#ffffff"
         )
         title_lbl.pack(side="left")
 
+        # Engine Badge
+        badge_lbl = tk.Label(
+            header_frame,
+            text="Engine v1.0",
+            font=("Segoe UI", 8, "bold"),
+            fg=color_brand,
+            bg=color_brand_subtle,
+            padx=6, pady=2
+        )
+        badge_lbl.pack(side="left", padx=(8, 0))
+
         # Camera selection dropdown in header
-        cam_sel_frame = tk.Frame(header_frame, bg=accent_blue)
+        cam_sel_frame = tk.Frame(header_frame, bg="#ffffff")
         cam_sel_frame.pack(side="right")
 
         tk.Label(
-            cam_sel_frame, text="Camera:", font=small_font, fg="#cbd5e1", bg=accent_blue
+            cam_sel_frame, text="Camera Source:", font=small_font, fg=text_secondary, bg="#ffffff"
         ).pack(side="left", padx=(0, 4))
 
         self.cam_combo_var = tk.StringVar()
@@ -391,18 +417,19 @@ class ISLApp:
             width=28,
             font=("Segoe UI", 8)
         )
-        self.cam_combobox.pack(side="left", padx=(0, 5))
+        self.cam_combobox.pack(side="left", padx=(0, 6))
         self.cam_combobox.bind("<<ComboboxSelected>>", self._on_camera_selected)
 
         self.btn_rescan_cam = tk.Button(
             cam_sel_frame,
             text="🔄 Rescan",
             font=small_font,
-            bg="#16213e",
-            fg="white",
-            activebackground="#00d4ff",
-            relief="flat",
-            padx=6, pady=2,
+            bg="#ffffff",
+            fg=text_primary,
+            activebackground="#f3f4f6",
+            bd=1,
+            relief="solid",
+            padx=8, pady=3,
             cursor="hand2",
             command=self.rescan_cameras
         )
@@ -411,25 +438,25 @@ class ISLApp:
         # --------------------------------------------------
         # MAIN BODY (2 COLUMNS)
         # --------------------------------------------------
-        body = tk.Frame(self.root, bg=bg_dark, padx=12, pady=10)
+        body = tk.Frame(self.root, bg=bg_canvas, padx=14, pady=12)
         body.pack(fill="both", expand=True)
 
         # ==================================================
         # LEFT COLUMN: CAMERA & VIDEO OPTIONS
         # ==================================================
-        left_col = tk.Frame(body, bg=bg_dark)
-        left_col.pack(side="left", padx=(0, 10))
+        left_col = tk.Frame(body, bg=bg_canvas)
+        left_col.pack(side="left", padx=(0, 12))
 
         # Camera viewport container
         cam_card = tk.LabelFrame(
             left_col, text="  Live Video Feed  ",
-            font=heading_font, fg=highlight_cyan, bg=card_bg,
-            padx=6, pady=6, bd=1, relief="solid"
+            font=heading_font, fg=text_primary, bg=card_bg,
+            padx=8, pady=8, bd=1, relief="solid"
         )
         cam_card.pack(fill="x")
 
         # Fixed 640x480 video canvas
-        cam_box = tk.Frame(cam_card, width=640, height=480, bg="#050811")
+        cam_box = tk.Frame(cam_card, width=640, height=480, bg="#000000")
         cam_box.pack_propagate(False)
         cam_box.pack()
 
@@ -437,30 +464,30 @@ class ISLApp:
             cam_box,
             text="Initializing webcam feed...",
             font=label_font,
-            bg="#050811",
+            bg="#000000",
             fg="#94a3b8"
         )
         self.camera_label.pack(fill="both", expand=True)
 
         # Video Options Toolbar underneath camera
-        opts_frame = tk.Frame(cam_card, bg=card_bg, pady=5)
-        opts_frame.pack(fill="x")
+        opts_frame = tk.Frame(cam_card, bg="#f8f9fa", pady=6, padx=8)
+        opts_frame.pack(fill="x", pady=(6, 0))
 
         self.var_mirror = tk.BooleanVar(value=True)
         cb_mirror = tk.Checkbutton(
-            opts_frame, text="Mirror Video (Flip)",
+            opts_frame, text="Mirror Video",
             variable=self.var_mirror,
-            font=small_font, fg=text_light, bg=card_bg,
-            selectcolor="#0f3460", activebackground=card_bg, activeforeground=highlight_cyan
+            font=small_font, fg=text_primary, bg="#f8f9fa",
+            selectcolor="#ffffff", activebackground="#f8f9fa", activeforeground=color_brand
         )
-        cb_mirror.pack(side="left", padx=(5, 10))
+        cb_mirror.pack(side="left", padx=(2, 10))
 
         self.var_landmarks = tk.BooleanVar(value=True)
         cb_landmarks = tk.Checkbutton(
-            opts_frame, text="Show Landmarks / Skeleton",
+            opts_frame, text="Show Skeleton",
             variable=self.var_landmarks,
-            font=small_font, fg=text_light, bg=card_bg,
-            selectcolor="#0f3460", activebackground=card_bg, activeforeground=highlight_cyan
+            font=small_font, fg=text_primary, bg="#f8f9fa",
+            selectcolor="#ffffff", activebackground="#f8f9fa", activeforeground=color_brand
         )
         cb_landmarks.pack(side="left", padx=(0, 10))
 
@@ -468,25 +495,25 @@ class ISLApp:
         cb_auto = tk.Checkbutton(
             opts_frame, text="Auto-Add Held Sign",
             variable=self.var_auto_add,
-            font=small_font, fg=text_light, bg=card_bg,
-            selectcolor="#0f3460", activebackground=card_bg, activeforeground=highlight_cyan
+            font=small_font, fg=text_primary, bg="#f8f9fa",
+            selectcolor="#ffffff", activebackground="#f8f9fa", activeforeground=color_brand
         )
         cb_auto.pack(side="left", padx=(0, 10))
 
         self.var_paused = tk.BooleanVar(value=False)
         self.btn_pause = tk.Button(
             opts_frame,
-            text="⏸ Pause Detection",
+            text="⏸ Pause",
             font=small_font,
-            bg="#2c3e50", fg="white",
-            activebackground="#34495e", activeforeground="white",
-            relief="flat", padx=8, pady=2, cursor="hand2",
+            bg="#ffffff", fg=text_primary,
+            activebackground="#f3f4f6", activeforeground=text_primary,
+            bd=1, relief="solid", padx=10, pady=2, cursor="hand2",
             command=self.toggle_pause
         )
-        self.btn_pause.pack(side="right", padx=(0, 5))
+        self.btn_pause.pack(side="right", padx=(0, 2))
 
         # Sliders card for fine-tuning
-        sliders_card = tk.Frame(cam_card, bg=card_bg, pady=4)
+        sliders_card = tk.Frame(cam_card, bg=card_bg, pady=6)
         sliders_card.pack(fill="x")
 
         # Confidence slider
@@ -494,14 +521,14 @@ class ISLApp:
         s_left.pack(side="left", fill="x", expand=True, padx=(5, 10))
 
         self.conf_val_lbl = tk.Label(
-            s_left, text="Min Confidence: 70%", font=small_font, fg="#94a3b8", bg=card_bg
+            s_left, text="Min Confidence: 70%", font=small_font, fg=text_secondary, bg=card_bg
         )
         self.conf_val_lbl.pack(anchor="w")
 
         self.conf_slider = tk.Scale(
             s_left, from_=50, to=95, orient="horizontal",
-            bg=card_bg, fg=text_light, highlightthickness=0,
-            troughcolor="#0f3460", activebackground=highlight_cyan,
+            bg=card_bg, fg=text_primary, highlightthickness=0,
+            troughcolor="#ffedd5", activebackground=color_brand,
             showvalue=False, command=self._on_conf_change
         )
         self.conf_slider.set(70)
@@ -512,14 +539,14 @@ class ISLApp:
         s_right.pack(side="right", fill="x", expand=True, padx=(0, 5))
 
         self.hold_val_lbl = tk.Label(
-            s_right, text="Hold Speed: 15 frames (~0.5s)", font=small_font, fg="#94a3b8", bg=card_bg
+            s_right, text="Hold Speed: 15 frames (~0.5s)", font=small_font, fg=text_secondary, bg=card_bg
         )
         self.hold_val_lbl.pack(anchor="w")
 
         self.hold_slider = tk.Scale(
             s_right, from_=8, to=30, orient="horizontal",
-            bg=card_bg, fg=text_light, highlightthickness=0,
-            troughcolor="#0f3460", activebackground=highlight_cyan,
+            bg=card_bg, fg=text_primary, highlightthickness=0,
+            troughcolor="#ffedd5", activebackground=color_brand,
             showvalue=False, command=self._on_hold_change
         )
         self.hold_slider.set(15)
@@ -527,40 +554,40 @@ class ISLApp:
 
         # Camera status & resolution footer
         self.cam_info_lbl = tk.Label(
-            cam_card, text="Camera: Connecting...", font=small_font, fg="#64748b", bg=card_bg
+            cam_card, text="Camera: Connecting...", font=small_font, fg=text_muted, bg=card_bg
         )
         self.cam_info_lbl.pack(anchor="w", padx=5, pady=(4, 0))
 
         # ==================================================
         # RIGHT COLUMN: RECOGNITION & TEXT EDITING CONTROLS
         # ==================================================
-        right_col = tk.Frame(body, bg=bg_dark, width=380)
+        right_col = tk.Frame(body, bg=bg_canvas, width=390)
         right_col.pack(side="right", fill="both", expand=True)
         right_col.pack_propagate(False)
 
         # --------------------------------------------------
-        # CARD 1: CURRENT DETECTED SIGN
+        # CARD 1: CURRENT DETECTED SIGN (SE_PROJECT Hero Card style)
         # --------------------------------------------------
         sign_card = tk.LabelFrame(
             right_col, text="  Current Sign Detection  ",
-            font=heading_font, fg=highlight_cyan, bg=card_bg,
-            padx=10, pady=6, bd=1, relief="solid"
+            font=heading_font, fg=text_primary, bg=card_bg,
+            padx=12, pady=8, bd=1, relief="solid"
         )
-        sign_card.pack(fill="x", pady=(0, 8))
+        sign_card.pack(fill="x", pady=(0, 10))
 
         top_sign_row = tk.Frame(sign_card, bg=card_bg)
         top_sign_row.pack(fill="x")
 
-        # Big sign label
+        # Big sign label in SE_PROJECT orange accent
         self.sign_label = tk.Label(
             top_sign_row,
             text="...",
-            font=("Segoe UI", 42, "bold"),
+            font=("Space Grotesk" if "Space Grotesk" in tk.font.families() else "Segoe UI", 42, "bold"),
             bg=card_bg,
-            fg=success_green,
+            fg=color_brand,
             width=3
         )
-        self.sign_label.pack(side="left", padx=(10, 15))
+        self.sign_label.pack(side="left", padx=(5, 12))
 
         sign_meta_col = tk.Frame(top_sign_row, bg=card_bg)
         sign_meta_col.pack(side="left", fill="both", expand=True)
@@ -570,29 +597,29 @@ class ISLApp:
             text="Confidence: 0.0%",
             font=label_font,
             bg=card_bg,
-            fg=warning_yellow
+            fg=text_primary
         )
         self.confidence_label.pack(anchor="w", pady=(4, 2))
 
         self.status_label = tk.Label(
             sign_meta_col,
-            text="Status: Waiting for hand...",
+            text="Status: Waiting for hand gestures...",
             font=small_font,
             bg=card_bg,
-            fg="#94a3b8"
+            fg=text_muted
         )
         self.status_label.pack(anchor="w", pady=(0, 2))
 
         # Stability hold progress bar
-        p_frame = tk.Frame(sign_card, bg=card_bg, pady=2)
+        p_frame = tk.Frame(sign_card, bg=card_bg, pady=4)
         p_frame.pack(fill="x")
 
         tk.Label(
-            p_frame, text="Hold Progress:", font=("Segoe UI", 7), fg="#64748b", bg=card_bg
-        ).pack(side="left", padx=(0, 5))
+            p_frame, text="Hold Stability Progress:", font=("Segoe UI", 7, "bold"), fg=text_secondary, bg=card_bg
+        ).pack(side="left", padx=(0, 6))
 
         self.progress_canvas = tk.Canvas(
-            p_frame, height=8, bg="#0d1117", highlightthickness=0
+            p_frame, height=8, bg="#e5e7eb", highlightthickness=0
         )
         self.progress_canvas.pack(side="left", fill="x", expand=True)
 
@@ -600,21 +627,21 @@ class ISLApp:
         # CARD 2: RECOGNIZED TEXT & EDITING CONTROLS
         # --------------------------------------------------
         text_card = tk.LabelFrame(
-            right_col, text="  Recognized Sentence  ",
-            font=heading_font, fg=highlight_cyan, bg=card_bg,
-            padx=10, pady=8, bd=1, relief="solid"
+            right_col, text="  Recognized Sentence Buffer  ",
+            font=heading_font, fg=text_primary, bg=card_bg,
+            padx=12, pady=10, bd=1, relief="solid"
         )
         text_card.pack(fill="both", expand=True)
 
         # Sub-header with text length counter
         text_hdr = tk.Frame(text_card, bg=card_bg)
-        text_hdr.pack(fill="x", pady=(0, 4))
+        text_hdr.pack(fill="x", pady=(0, 6))
 
         self.text_stats_lbl = tk.Label(
             text_hdr,
             text="0 characters | 0 words",
             font=small_font,
-            fg="#94a3b8",
+            fg=text_secondary,
             bg=card_bg
         )
         self.text_stats_lbl.pack(side="left")
@@ -623,18 +650,18 @@ class ISLApp:
             text_hdr,
             text="",
             font=("Segoe UI", 8, "italic"),
-            fg=success_green,
+            fg=color_brand,
             bg=card_bg
         )
         self.notif_lbl.pack(side="right")
 
-        # Interactive editable text box
+        # Interactive editable text box (Clean SaaS light background)
         self.text_display = tk.Text(
             text_card,
             font=text_font,
-            bg="#090d16",
-            fg="white",
-            insertbackground="white",
+            bg="#fafafa",
+            fg=text_primary,
+            insertbackground=color_primary,
             height=3,
             wrap="word",
             relief="solid",
@@ -645,83 +672,85 @@ class ISLApp:
         self.text_display.pack(fill="x", pady=(0, 8))
         self.text_display.bind("<KeyRelease>", self._on_text_widget_change)
 
-        # Common button styling
-        def make_btn(parent, text, cmd, bg_col, hover_col, fg_col="white"):
+        # Helper for tactile SE_PROJECT styled buttons
+        def make_btn(parent, text, cmd, bg_col, hover_col, fg_col="white", is_bordered=False):
             b = tk.Button(
                 parent, text=text, command=cmd,
                 font=btn_font, bg=bg_col, fg=fg_col,
                 activebackground=hover_col, activeforeground=fg_col,
-                relief="flat", cursor="hand2", pady=5
+                relief="solid" if is_bordered else "flat",
+                bd=1 if is_bordered else 0,
+                cursor="hand2", pady=5
             )
             return b
 
         # --------------------------------------------------
-        # TEXT ACTION BUTTONS
+        # TEXT ACTION BUTTONS (SE_PROJECT Layout)
         # --------------------------------------------------
 
-        # Row 1: Add Current Sign & Add Space
+        # Row 1: Add Current Sign (Jet Black Primary CTA) & Add Space
         r1 = tk.Frame(text_card, bg=card_bg)
         r1.pack(fill="x", pady=2)
 
-        self.btn_add = make_btn(r1, "✓ ADD SIGN", self.add_letter, "#1e3a8a", "#2563eb")
+        self.btn_add = make_btn(r1, "✓ ADD SIGN", self.add_letter, "#000000", "#1f2937", "#ffffff")
         self.btn_add.pack(side="left", fill="x", expand=True, padx=(0, 2))
 
-        self.btn_space = make_btn(r1, "⎵ SPACE", self.add_space, "#1e293b", "#334155")
+        self.btn_space = make_btn(r1, "⎵ SPACE", self.add_space, "#ffffff", "#f9fafb", "#374151", is_bordered=True)
         self.btn_space.pack(side="right", fill="x", expand=True, padx=(2, 0))
 
         # Row 2: Delete Letter (Backspace) & Delete Word
         r2 = tk.Frame(text_card, bg=card_bg)
         r2.pack(fill="x", pady=2)
 
-        self.btn_backspace = make_btn(r2, "⌫ DELETE LETTER", self.backspace, "#7f1d1d", "#991b1b")
+        self.btn_backspace = make_btn(r2, "⌫ BACKSPACE", self.backspace, "#ffffff", "#f9fafb", "#374151", is_bordered=True)
         self.btn_backspace.pack(side="left", fill="x", expand=True, padx=(0, 2))
 
-        self.btn_del_word = make_btn(r2, "🗑️ DELETE WORD", self.delete_word, "#831843", "#9d174d")
+        self.btn_del_word = make_btn(r2, "🗑️ DELETE WORD", self.delete_word, "#fef2f2", "#fee2e2", "#dc2626", is_bordered=True)
         self.btn_del_word.pack(side="right", fill="x", expand=True, padx=(2, 0))
 
         # Row 3: Clear All & Undo
         r3 = tk.Frame(text_card, bg=card_bg)
         r3.pack(fill="x", pady=2)
 
-        self.btn_clear = make_btn(r3, "✕ CLEAR ALL", self.clear_text, "#450a0a", "#dc2626")
+        self.btn_clear = make_btn(r3, "✕ CLEAR ALL", self.clear_text, "#ef4444", "#dc2626", "#ffffff")
         self.btn_clear.pack(side="left", fill="x", expand=True, padx=(0, 2))
 
-        self.btn_undo = make_btn(r3, "↩ UNDO", self.undo_text, "#374151", "#4b5563")
+        self.btn_undo = make_btn(r3, "↩ UNDO", self.undo_text, "#ffffff", "#f9fafb", "#374151", is_bordered=True)
         self.btn_undo.pack(side="right", fill="x", expand=True, padx=(2, 0))
 
         # Row 4: Copy to Clipboard & Save to File
         r4 = tk.Frame(text_card, bg=card_bg)
         r4.pack(fill="x", pady=2)
 
-        self.btn_copy = make_btn(r4, "📋 COPY TEXT", self.copy_to_clipboard, "#065f46", "#059669")
+        self.btn_copy = make_btn(r4, "📋 COPY TEXT", self.copy_to_clipboard, "#ffffff", "#f9fafb", "#374151", is_bordered=True)
         self.btn_copy.pack(side="left", fill="x", expand=True, padx=(0, 2))
 
-        self.btn_save = make_btn(r4, "💾 SAVE TO FILE", self.save_to_file, "#0e7490", "#0891b2")
+        self.btn_save = make_btn(r4, "💾 SAVE TO FILE", self.save_to_file, "#ffffff", "#f9fafb", "#374151", is_bordered=True)
         self.btn_save.pack(side="right", fill="x", expand=True, padx=(2, 0))
 
-        # Row 5: Speak Text (Full width)
-        self.btn_speak = make_btn(text_card, "🔊 SPEAK SENTENCE (TTS)", self.speak_text, "#14532d", "#16a34a")
+        # Row 5: Speak Text (Brand Orange CTA)
+        self.btn_speak = make_btn(text_card, "🔊 SPEAK SENTENCE (TTS)", self.speak_text, color_brand, "#e05e00", "#ffffff")
         self.btn_speak.pack(fill="x", pady=3)
 
         # Row 6: Sign Reference Guide & Exit
         r6 = tk.Frame(text_card, bg=card_bg)
         r6.pack(fill="x", pady=2)
 
-        self.btn_guide = make_btn(r6, "📖 SIGN GUIDE", self.show_sign_guide, "#312e81", "#4338ca")
+        self.btn_guide = make_btn(r6, "📖 SIGN GUIDE", self.show_sign_guide, "#ffffff", "#f3f4f6", "#111827", is_bordered=True)
         self.btn_guide.pack(side="left", fill="x", expand=True, padx=(0, 2))
 
-        self.btn_exit = make_btn(r6, "✕ EXIT", self.quit_app, "#3f3f46", "#52525b")
+        self.btn_exit = make_btn(r6, "✕ EXIT", self.quit_app, "#f3f4f6", "#e5e7eb", "#4b5563", is_bordered=True)
         self.btn_exit.pack(side="right", fill="x", expand=True, padx=(2, 0))
 
         # --------------------------------------------------
         # FOOTER LEGEND
         # --------------------------------------------------
-        footer = tk.Frame(right_col, bg=bg_dark, pady=4)
+        footer = tk.Frame(right_col, bg=bg_canvas, pady=4)
         footer.pack(fill="x")
 
         shortcuts_txt = "Shortcuts: Space=Add | -=Space | Backspace=Del Char | Ctrl+Del=Clear | S=Speak | P=Pause | Esc=Exit"
         tk.Label(
-            footer, text=shortcuts_txt, font=("Segoe UI", 7), fg="#64748b", bg=bg_dark, wraplength=370, justify="left"
+            footer, text=shortcuts_txt, font=("Segoe UI", 7), fg=text_muted, bg=bg_canvas, wraplength=380, justify="left"
         ).pack(anchor="w")
 
         # --------------------------------------------------
@@ -934,30 +963,31 @@ class ISLApp:
         """Display an interactive modal showing supported alphabet gestures."""
         guide_win = tk.Toplevel(self.root)
         guide_win.title("Indian Sign Language - Gesture Reference Guide")
-        guide_win.configure(bg="#121826")
-        guide_win.geometry("540x520")
+        guide_win.configure(bg="#fafafa")
+        guide_win.geometry("540x530")
         guide_win.resizable(False, False)
         guide_win.lift()
         guide_win.grab_set()
 
-        hdr = tk.Frame(guide_win, bg="#0f3460", padx=15, pady=12)
+        hdr = tk.Frame(guide_win, bg="#ffffff", padx=16, pady=12, bd=1, relief="solid")
         hdr.pack(fill="x")
         tk.Label(
-            hdr, text="📖 ISL Alphabet & Gesture Reference",
-            font=("Segoe UI", 13, "bold"), fg="#00d4ff", bg="#0f3460"
-        ).pack()
+            hdr, text="ISL Alphabet & Gesture Reference",
+            font=("Space Grotesk" if "Space Grotesk" in tk.font.families() else "Segoe UI", 13, "bold"),
+            fg="#111827", bg="#ffffff"
+        ).pack(anchor="w")
         tk.Label(
-            hdr, text="Supported Indian Sign Language alphabet characters (A - Z)",
-            font=("Segoe UI", 9), fg="#e0e0e0", bg="#0f3460"
-        ).pack(pady=(2, 0))
+            hdr, text="Standardized Indian Sign Language alphabet conventions (A – Z)",
+            font=("Segoe UI", 9), fg="#6b7280", bg="#ffffff"
+        ).pack(anchor="w", pady=(2, 0))
 
-        content = tk.Frame(guide_win, bg="#121826", padx=15, pady=12)
+        content = tk.Frame(guide_win, bg="#fafafa", padx=15, pady=12)
         content.pack(fill="both", expand=True)
 
         # Alphabet grid
         grid_frame = tk.LabelFrame(
             content, text="  Supported Letters (26 Classes)  ",
-            font=("Segoe UI", 10, "bold"), fg="#00d4ff", bg="#1a2234",
+            font=("Segoe UI", 10, "bold"), fg="#111827", bg="#ffffff",
             padx=10, pady=10, bd=1, relief="solid"
         )
         grid_frame.pack(fill="x", pady=(0, 10))
@@ -968,34 +998,34 @@ class ISLApp:
             c = idx % cols
             btn = tk.Label(
                 grid_frame, text=lbl, font=("Segoe UI", 11, "bold"),
-                bg="#0f3460", fg="#00e676", width=4, height=1, relief="ridge"
+                bg="#fff0e6", fg="#ff6b00", width=4, height=1, relief="solid", bd=1
             )
             btn.grid(row=r, column=c, padx=3, pady=3)
 
         # Guidelines card
         tips_frame = tk.LabelFrame(
             content, text="  Signing Best Practices  ",
-            font=("Segoe UI", 10, "bold"), fg="#00d4ff", bg="#1a2234",
+            font=("Segoe UI", 10, "bold"), fg="#111827", bg="#ffffff",
             padx=12, pady=8, bd=1, relief="solid"
         )
         tips_frame.pack(fill="both", expand=True)
 
         tips = [
-            "• ISL uses 2-handed signing for many letters (A, B, D, G, H, P, Q, R, S, T, W, X, Y).",
-            "• Single-handed signs (C, E, I, J, L, O, U, V, Z) are also supported.",
+            "• ISL uses 2-handed signing for over 75% of letters (A, B, D, G, H, P, Q, R, S, T, W, X, Y).",
+            "• Single-handed signs (C, I, L, O, U, V) are supported ambidextrously.",
             "• Keep both hands fully within camera view facing adequate lighting.",
-            "• Hold your sign steady for ~0.5 seconds to auto-confirm into text.",
+            "• Hold your sign steady for ~0.5 seconds to auto-confirm into the text buffer.",
             "• If an incorrect letter is added, click 'DELETE LETTER' or 'DELETE WORD'."
         ]
         for t in tips:
             tk.Label(
-                tips_frame, text=t, font=("Segoe UI", 8), fg="#cbd5e1", bg="#1a2234", anchor="w"
+                tips_frame, text=t, font=("Segoe UI", 8), fg="#4b5563", bg="#ffffff", anchor="w"
             ).pack(fill="x", pady=2)
 
         close_btn = tk.Button(
             content, text="Close Guide", font=("Segoe UI", 9, "bold"),
-            bg="#2563eb", fg="white", activebackground="#3b82f6",
-            relief="flat", padx=15, pady=5, cursor="hand2",
+            bg="#000000", fg="#ffffff", activebackground="#1f2937",
+            relief="flat", padx=16, pady=5, cursor="hand2",
             command=guide_win.destroy
         )
         close_btn.pack(pady=(10, 0))
@@ -1232,21 +1262,21 @@ class ISLApp:
             if not self.var_paused.get():
                 self.sign_label.config(text=self.predicted_label)
                 if self.hand_detected:
-                    self.sign_label.config(fg="#00e676")
+                    self.sign_label.config(fg="#ff6b00")
                     hands_txt = f"✋ {self.num_hands_detected} Hand{'s' if self.num_hands_detected > 1 else ''} Detected"
-                    self.status_label.config(text=f"Status: {hands_txt}", fg="#00e676")
+                    self.status_label.config(text=f"Status: {hands_txt}", fg="#10b981")
                 else:
-                    self.sign_label.config(fg="#64748b")
-                    self.status_label.config(text="Status: Show your hand", fg="#94a3b8")
+                    self.sign_label.config(fg="#9ca3af")
+                    self.status_label.config(text="Status: Show your hand", fg="#6b7280")
 
                 conf_percent = self.confidence * 100.0
                 self.confidence_label.config(text=f"Confidence: {conf_percent:.1f}%")
                 if conf_percent >= 85.0:
-                    self.confidence_label.config(fg="#00e676")
+                    self.confidence_label.config(fg="#10b981")
                 elif conf_percent >= 70.0:
-                    self.confidence_label.config(fg="#ffd600")
+                    self.confidence_label.config(fg="#ff6b00")
                 else:
-                    self.confidence_label.config(fg="#ff4757")
+                    self.confidence_label.config(fg="#ef4444")
 
         # Update hold progress canvas
         self.progress_canvas.delete("all")
@@ -1257,7 +1287,7 @@ class ISLApp:
             prog = min(self.stable_count / max(target_hold, 1), 1.0)
             fill_w = int(canvas_width * prog)
             self.progress_canvas.create_rectangle(
-                0, 0, fill_w, 8, fill="#00e676", outline=""
+                0, 0, fill_w, 8, fill="#ff6b00", outline=""
             )
 
         # Convert and blit frame to Tkinter

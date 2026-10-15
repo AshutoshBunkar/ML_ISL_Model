@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+
+{% block title %}Gesture Guide — Indian Sign Language Recognition{% endblock %}
+
+{% block content %}
+<div class="breadcrumbs">
+  <a href="/">Live Studio</a>
+  <span>/</span>
+  <span style="color: var(--text-primary);">ISL Alphabet &amp; Gesture Guide</span>
+</div>
+
+<!-- Header Hero Panel -->
+<div class="panel" style="margin-bottom: 1.5rem;">
+  <div class="panel-header">
+    <div>
+      <div class="frmbdg" style="margin-bottom: 0.5rem;">
+        <span class="anmsrch">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="2" y1="12" x2="22" y2="12"/>
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1-4-10z"/>
+          </svg>
+        </span>
+        Standardized ISL Manual Conventions
+      </div>
+      <h1 class="panel-title">26-Letter Indian Sign Language Gesture Reference</h1>
+      <p class="panel-subtitle">Over 75% of Indian Sign Language alphabet letters require coordinated dual-hand interactions.</p>
+    </div>
+    <a href="/" class="btn btn-ctablk">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+      Open Live Studio
+    </a>
+  </div>
+
+  <div class="filter-bar">
+    <div class="filter-pills">
+      <button class="filter-pill active" onclick="filterAlphabet('ALL', this)">All Letters (26)</button>
+      <button class="filter-pill" onclick="filterAlphabet('TWO_HAND', this)">Two-Handed (20)</button>
+      <button class="filter-pill" onclick="filterAlphabet('SINGLE_HAND', this)">Single-Handed (6)</button>
+    </div>
+
+    <div class="search-box">
+      <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      <input type="text" id="guide-search" class="form-input" placeholder="Search letter (e.g., A, X, Peace)..." oninput="searchLetters(this.value)">
+    </div>
+  </div>
+</div>
+
+<!-- Alphabet Grid -->
+<div class="gesture-grid" id="alphabet-container">
+  {% for item in alphabet %}
+  <div class="ftr-crd alphabet-item" data-type="{{ item.type }}" data-letter="{{ item.letter }}" data-name="{{ item.name }}" onclick="openLetterModal('{{ item.letter }}', '{{ item.type_label }}', '{{ item.desc }}', '{{ item.tips }}')">
+    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 0.75rem;">
+      <div class="ftribx">{{ item.letter }}</div>
+      <span class="badge {% if item.type == 'TWO_HAND' %}badge-warning{% else %}badge-completed{% endif %}">
+        {{ item.type_label }}
+      </span>
+    </div>
+    <h4 style="font-family: var(--font-display); font-size: 1.05rem; margin-bottom: 0.35rem; color: var(--text-primary);">
+      Letter {{ item.letter }}
+    </h4>
+    <p style="font-size: 0.8125rem; color: var(--text-secondary); margin-bottom: 0.75rem; line-height: 1.5;">
+      {{ item.desc }}
+    </p>
+    <div style="font-size: 0.75rem; color: var(--color-brand); font-weight: 600; display: flex; align-items: center; gap: 4px;">
+      <span>Signing Tips</span>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Modal Dialog -->
+<div id="guide-modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); z-index: 1000; align-items: center; justify-content: center;">
+  <div class="panel" style="max-width: 500px; width: 90%; margin: 1rem; box-shadow: var(--shadow-lg);">
+    <div class="panel-header">
+      <div style="display: flex; align-items: center; gap: 0.75rem;">
+        <div class="alphabet-letter-pill" id="modal-letter">A</div>
+        <div>
+          <h3 class="panel-title" id="modal-title" style="margin: 0;">Sign Details</h3>
+          <span id="modal-badge" class="badge badge-warning">Two-Handed</span>
+        </div>
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="closeLetterModal()">✕</button>
+    </div>
+    <div class="panel-body">
+      <h4 style="font-size: 0.875rem; font-weight: 700; margin-bottom: 0.35rem; color: var(--text-primary);">Manual Configuration:</h4>
+      <p id="modal-desc" style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 1rem; line-height: 1.6;"></p>
+      
+      <h4 style="font-size: 0.875rem; font-weight: 700; margin-bottom: 0.35rem; color: var(--text-primary);">Key Landmark Alignment:</h4>
+      <p id="modal-tips" style="font-size: 0.8125rem; color: var(--text-muted); line-height: 1.6; background: var(--bg-canvas); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);"></p>
+
+      <div style="margin-top: 1.25rem; display: flex; justify-content: flex-end; gap: 0.5rem;">
+        <button class="btn btn-secondary" onclick="closeLetterModal()">Close</button>
+        <a href="/" class="btn btn-ctablk">Practice in Studio</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function filterAlphabet(type, btn) {
+    document.querySelectorAll('.filter-pill').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+
+    const items = document.querySelectorAll('.alphabet-item');
+    items.forEach(it => {
+      if (type === 'ALL' || it.getAttribute('data-type') === type) {
+        it.style.display = 'block';
+      } else {
+        it.style.display = 'none';
+      }
+    });
+  }
+
+  function searchLetters(q) {
+    q = q.trim().toUpperCase();
+    const items = document.querySelectorAll('.alphabet-item');
+    items.forEach(it => {
+      const letter = it.getAttribute('data-letter');
+      const desc = it.innerText.toUpperCase();
+      if (!q || letter.includes(q) || desc.includes(q)) {
+        it.style.display = 'block';
+      } else {
+        it.style.display = 'none';
+      }
+    });
+  }
+
+  function openLetterModal(letter, typeLabel, desc, tips) {
+    document.getElementById('modal-letter').innerText = letter;
+    document.getElementById('modal-title').innerText = `Letter ${letter} Signing Guide`;
+    document.getElementById('modal-badge').innerText = typeLabel;
+    document.getElementById('modal-desc').innerText = desc;
+    document.getElementById('modal-tips').innerText = tips;
+    document.getElementById('guide-modal').style.display = 'flex';
+  }
+
+  function closeLetterModal() {
+    document.getElementById('guide-modal').style.display = 'none';
+  }
+
+  window.addEventListener('click', (e) => {
+    const modal = document.getElementById('guide-modal');
+    if (e.target === modal) closeLetterModal();
+  });
+</script>
+{% endblock %}
