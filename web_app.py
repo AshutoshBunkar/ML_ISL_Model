@@ -96,7 +96,8 @@ def load_model_assets():
 def camera_loop():
     """Background thread continuously grabbing frames and running ISL inference."""
     print("Starting background camera capture loop...")
-    vision_state.camera = open_best_camera(preferred_idx=vision_state.camera_idx)
+    cap, _ = open_best_camera(preferred_idx=vision_state.camera_idx)
+    vision_state.camera = cap
     
     prev_time = time.time()
     frame_count = 0
@@ -396,9 +397,9 @@ def parse_history():
 async def dashboard_view(request: Request):
     """Main live recognition studio dashboard."""
     return templates.TemplateResponse(
-        "dashboard.html",
-        {
-            "request": request,
+        request=request,
+        name="dashboard.html",
+        context={
             "active_tab": "dashboard"
         }
     )
@@ -408,9 +409,9 @@ async def dashboard_view(request: Request):
 async def guide_view(request: Request):
     """26-letter interactive ISL gesture reference guide."""
     return templates.TemplateResponse(
-        "guide.html",
-        {
-            "request": request,
+        request=request,
+        name="guide.html",
+        context={
             "active_tab": "guide",
             "alphabet": ALPHABET_DATA
         }
@@ -422,9 +423,9 @@ async def benchmarks_view(request: Request):
     """Model accuracy benchmarks and classification report."""
     report_rows = parse_classification_report()
     return templates.TemplateResponse(
-        "benchmarks.html",
-        {
-            "request": request,
+        request=request,
+        name="benchmarks.html",
+        context={
             "active_tab": "benchmarks",
             "report_rows": report_rows
         }
@@ -436,9 +437,9 @@ async def history_view(request: Request):
     """Translation session history viewer."""
     history_items = parse_history()
     return templates.TemplateResponse(
-        "history.html",
-        {
-            "request": request,
+        request=request,
+        name="history.html",
+        context={
             "active_tab": "history",
             "history_items": history_items
         }
@@ -454,9 +455,10 @@ async def video_feed(cam: Optional[int] = None):
     """MJPEG live camera stream with MediaPipe landmarks and bounding boxes."""
     if cam is not None and cam != vision_state.camera_idx:
         vision_state.camera_idx = cam
-        if vision_state.camera:
+        if vision_state.camera is not None:
             vision_state.camera.release()
-        vision_state.camera = open_best_camera(preferred_idx=cam)
+        cap, _ = open_best_camera(preferred_idx=cam)
+        vision_state.camera = cap
 
     def frame_generator():
         while vision_state.running:
@@ -500,9 +502,10 @@ async def get_cameras():
 async def set_camera(idx: int):
     """Switch active physical camera device."""
     vision_state.camera_idx = idx
-    if vision_state.camera:
+    if vision_state.camera is not None:
         vision_state.camera.release()
-    vision_state.camera = open_best_camera(preferred_idx=idx)
+    cap, _ = open_best_camera(preferred_idx=idx)
+    vision_state.camera = cap
     return JSONResponse({"status": "ok", "camera_idx": idx})
 
 

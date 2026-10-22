@@ -240,7 +240,7 @@ Input Vector [126 Features]
 ## 7. Empirical Results & Comparative Evaluation
 
 ### 7.1 Benchmark Test Performance
-Evaluating the trained model on the **12,551 completely unseen held-out test samples** ([`results/test_data.npz`](file:///c:/Users/ASUS/OneDrive/Desktop/coding/Z_Malicious/2_ML_Lab/results/test_data.npz)) yields the following results:
+Evaluating the trained model on the **12,551 completely unseen held-out test samples** ([`results/test_data.npz`]) yields the following results:
 
 | Benchmark Metric | Measured Result | Significance |
 |---|---|---|
@@ -254,7 +254,7 @@ Evaluating the trained model on the **12,551 completely unseen held-out test sam
 | **Perfect Classes (100% P & R)** | **19 of 26** | Zero errors on `A, B, D, E, F, G, H, J, K, M, N, P, Q, R, S, T, V, W, Y` |
 
 ### 7.2 Per-Class Classification Report
-From the standardized evaluation log ([`results/classification_report.txt`](file:///c:/Users/ASUS/OneDrive/Desktop/coding/Z_Malicious/2_ML_Lab/results/classification_report.txt)):
+From the standardized evaluation log ([`results/classification_report.txt`]):
 
 | Class | Precision | Recall | F1-Score | Support (Samples) | Notes on Gesture Geometry |
 |:---:|:---:|:---:|:---:|:---:|---|
