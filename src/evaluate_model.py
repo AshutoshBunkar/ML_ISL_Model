@@ -8,12 +8,26 @@ Usage:
     python src/evaluate_model.py
 """
 
+import sys
+import os
+import subprocess
+
+# Auto-redirect to venv python if run with global python
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+_root_dir = os.path.dirname(_script_dir)
+_venv_python = os.path.join(_root_dir, "venv", "Scripts", "python.exe")
+
+if os.path.exists(_venv_python):
+    _curr = os.path.normcase(os.path.abspath(sys.executable))
+    _target = os.path.normcase(os.path.abspath(_venv_python))
+    if _curr != _target:
+        sys.exit(subprocess.run([_venv_python] + sys.argv).returncode)
+
 import numpy as np
 import tensorflow as tf
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import os
 
 from sklearn.metrics import (
     accuracy_score,
@@ -30,11 +44,11 @@ from sklearn.metrics import (
 # FILE PATHS
 # --------------------------------------------------
 
-MODEL_PATH = "models/isl_model.keras"
-LABELS_PATH = "models/labels.npy"
-TEST_DATA_PATH = "results/test_data.npz"
-CONFUSION_MATRIX_PATH = "results/test_confusion_matrix.png"
-CLASSIFICATION_REPORT_PATH = "results/classification_report.txt"
+MODEL_PATH = os.path.join(_root_dir, "models", "isl_model.keras")
+LABELS_PATH = os.path.join(_root_dir, "models", "labels.npy")
+TEST_DATA_PATH = os.path.join(_root_dir, "results", "test_data.npz")
+CONFUSION_MATRIX_PATH = os.path.join(_root_dir, "results", "test_confusion_matrix.png")
+CLASSIFICATION_REPORT_PATH = os.path.join(_root_dir, "results", "classification_report.txt")
 
 
 # --------------------------------------------------
@@ -43,7 +57,7 @@ CLASSIFICATION_REPORT_PATH = "results/classification_report.txt"
 
 def main():
 
-    os.makedirs("results", exist_ok=True)
+    os.makedirs(os.path.join(_root_dir, "results"), exist_ok=True)
 
     print()
     print("=" * 60)

@@ -1,9 +1,24 @@
+import sys
+import os
+import subprocess
+
+# Auto-redirect to venv python if run with global python
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+_root_dir = os.path.dirname(_script_dir)
+_venv_python = os.path.join(_root_dir, "venv", "Scripts", "python.exe")
+
+if os.path.exists(_venv_python):
+    _curr = os.path.normcase(os.path.abspath(sys.executable))
+    _target = os.path.normcase(os.path.abspath(_venv_python))
+    if _curr != _target:
+        sys.exit(subprocess.run([_venv_python] + sys.argv).returncode)
+
 import cv2
 import mediapipe as mp
 import time
 
 # Location of the MediaPipe hand model
-MODEL_PATH = "models/hand_landmarker.task"
+MODEL_PATH = os.path.join(_root_dir, "models", "hand_landmarker.task")
 
 # MediaPipe classes
 BaseOptions = mp.tasks.BaseOptions

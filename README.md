@@ -5,8 +5,8 @@
 [![TensorFlow](https://img.shields.io/badge/TensorFlow-2.16-FF6F00?logo=tensorflow&logoColor=white)](https://www.tensorflow.org/)
 [![MediaPipe](https://img.shields.io/badge/MediaPipe-0.10.14-007ACC?logo=google&logoColor=white)](https://developers.google.com/mediapipe)
 [![OpenCV](https://img.shields.io/badge/OpenCV-4.10-5C3EE8?logo=opencv&logoColor=white)](https://opencv.org/)
-[![Accuracy](https://img.shields.io/badge/Test_Accuracy-99.72%25-00C853)](file:///results/classification_report.txt)
-[![Test Suite](https://img.shields.io/badge/Test_Suite-11%2F11_Passed-brightgreen)](file:///test_all_features.py)
+[![Accuracy](https://img.shields.io/badge/Test_Accuracy-99.72%25-00C853)](results/classification_report.txt)
+[![Test Suite](https://img.shields.io/badge/Test_Suite-11%2F11_Passed-brightgreen)](test_all_features.py)
 
 ---
 
@@ -93,7 +93,7 @@ The system supports all 26 uppercase alphabet letters (`A` through `Z`) accordin
 
 ## 📊 Model Evaluation & Benchmark Results
 
-The model was trained on **62,753 landmark samples** using an 80/20 stratified split and evaluated on **12,551 completely unseen test samples** ([`results/test_data.npz`](file:///results/test_data.npz)).
+The model was trained on **62,753 landmark samples** using an 80/20 stratified split and evaluated on **12,551 completely unseen test samples** ([`results/test_data.npz`](results/test_data.npz)).
 
 ### Headline Metrics
 | Metric | Value | Significance |
@@ -107,7 +107,7 @@ The model was trained on **62,753 landmark samples** using an 80/20 stratified s
 | **Inference Latency** | **< 2.0 ms** | Real-time classification on CPU |
 
 ### Per-Class Performance Summary
-From [`results/classification_report.txt`](file:///results/classification_report.txt):
+From [`results/classification_report.txt`](results/classification_report.txt):
 
 ```text
               precision    recall  f1-score   support
@@ -147,7 +147,7 @@ weighted avg       1.00      1.00      1.00     12551
 
 ## 🖥️ Graphical User Interface (GUI) Features
 
-The application GUI ([`src/app.py`](file:///src/app.py)) provides a comprehensive assistive communication interface:
+The application GUI ([`src/app.py`](src/app.py)) provides a comprehensive assistive communication interface:
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
@@ -199,7 +199,7 @@ The application GUI ([`src/app.py`](file:///src/app.py)) provides a comprehensiv
 ### 4. Assistive Output & Accessibility
 - **Multi-Threaded Text-to-Speech (TTS):** Speaks formed sentences aloud via `pyttsx3` in an asynchronous background daemon thread without stalling video frames.
 - **Clipboard Export:** One-click copy to Windows system clipboard.
-- **Session File Export:** Appends recognized sentences with ISO timestamps into [`isl_history.txt`](file:///isl_history.txt).
+- **Session File Export:** Appends recognized sentences with ISO timestamps into [`isl_history.txt`](isl_history.txt).
 - **Interactive Gesture Guide Modal:** Popup dialog showing the full 26-letter ISL alphabet grid and best practices.
 
 ---
@@ -345,10 +345,11 @@ python src/predict_two_hand.py
 ## 📜 Documentation Suite
 
 For exhaustive technical evaluations and presentation materials, refer to:
-- **Academic Project Report:** [`PROJECT_REPORT.md`](file:///PROJECT_REPORT.md)
-- **Deep Statistical Model Evaluation:** [`MODEL_ACCURACY_REPORT.md`](file:///MODEL_ACCURACY_REPORT.md)
-- **Presentation Deck & Defense Q&A:** [`PRESENTATION_CONTENT.md`](file:///PRESENTATION_CONTENT.md)
-- **Live Demonstration Walkthrough:** [`DEMO_GUIDE.md`](file:///DEMO_GUIDE.md)
+- **Academic Project Report:** [`PROJECT_REPORT.md`](PROJECT_REPORT.md)
+- **Deep Statistical Model Evaluation:** [`MODEL_ACCURACY_REPORT.md`](MODEL_ACCURACY_REPORT.md)
+- **Model Evaluation Metrics & Viva Guide:** [`MODEL_EVALUATION_METRICS.md`](MODEL_EVALUATION_METRICS.md)
+- **Presentation Deck & Defense Q&A:** [`PRESENTATION_CONTENT.md`](PRESENTATION_CONTENT.md)
+- **Live Demonstration Walkthrough:** [`DEMO_GUIDE.md`](DEMO_GUIDE.md)
 
 ---
 

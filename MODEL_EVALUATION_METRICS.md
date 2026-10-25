@@ -142,7 +142,7 @@ $$\hat{y}_{n, k} = \frac{e^{z_k}}{\sum_{j=1}^{26} e^{z_j}}$$
 
 ## 🔤 Complete 26-Class Empirical Performance Scorecard
 
-Below is the verified test dataset performance across all 26 alphabet classes (`A`–`Z`) evaluated on held-out samples ([`results/classification_report.txt`](file:///c:/Users/ASUS/OneDrive/Desktop/coding/Z_Malicious/2_ML_Lab/results/classification_report.txt)):
+Below is the verified test dataset performance across all 26 alphabet classes (`A`–`Z`) evaluated on held-out samples ([`results/classification_report.txt`](results/classification_report.txt)):
 
 | Alphabet Letter | Gesture Type | Precision | Recall | F1-Score | Test Support | Correct Predictions | Errors | Class Accuracy | Performance Status |
 |:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---|
@@ -206,7 +206,7 @@ Total Residual Errors        :     35 ( 0.28%)
 ### 💎 Key Statistical Insights from the Error Audit
 1. **Zero Two-Hand Confusions (0 / 44,795 dataset samples, 0 / 8,881 test samples):** Not a single two-handed ISL sign was confused with another two-handed sign. Every two-handed sign had 99.43% to 100.0% accuracy.
 2. **Single-Hand Geometric Curvature (`C` $\leftrightarrow$ `U`):** 20 of the 35 errors (57.1%) stem exclusively from the mutual confusion between `C` and `U`. Both gestures consist of curled fingers forming an open cavity; when viewed from minor yaw angles, their 3D landmark coordinates can momentarily intersect.
-3. **Temporal Filter Elimination in Production:** While these 35 errors exist in raw single-frame evaluations, in the live application ([`src/app.py`](file:///c:/Users/ASUS/OneDrive/Desktop/coding/Z_Malicious/2_ML_Lab/src/app.py)), the **10-Frame Majority Voting Filter** and **15-Frame Hold Accumulator** smooth out isolated single-frame flickers, making real-time typing virtually error-free.
+3. **Temporal Filter Elimination in Production:** While these 35 errors exist in raw single-frame evaluations, in the live application ([`src/app.py`](src/app.py)), the **10-Frame Majority Voting Filter** and **15-Frame Hold Accumulator** smooth out isolated single-frame flickers, making real-time typing virtually error-free.
 
 ---
 
@@ -262,7 +262,7 @@ Letter D:  69.0% F1 ────────────────────
 
 ## 📈 Training Dynamics & Convergence History
 
-The deep neural network ([`models/isl_model.keras`](file:///c:/Users/ASUS/OneDrive/Desktop/coding/Z_Malicious/2_ML_Lab/models/isl_model.keras)) was trained for 35 epochs on 50,202 samples with batch size 128.
+The deep neural network ([`models/isl_model.keras`](models/isl_model.keras)) was trained for 35 epochs on 50,202 samples with batch size 128.
 
 ### Convergence Trajectory Snapshot
 
@@ -497,13 +497,13 @@ Use these quick summaries during slide transitions or opening remarks:
 ## 📂 Source Code & Artifact File Cross-References
 
 All metrics and models documented in this guide can be verified across project files:
-- **Test Metric Script:** [`src/evaluate_model.py`](file:///c:/Users/ASUS/OneDrive/Desktop/coding/Z_Malicious/2_ML_Lab/src/evaluate_model.py)
-- **Model Training Architecture:** [`src/train_model.py`](file:///c:/Users/ASUS/OneDrive/Desktop/coding/Z_Malicious/2_ML_Lab/src/train_model.py)
-- **Relative Normalization Engine:** [`src/process_kaggle_dataset.py`](file:///c:/Users/ASUS/OneDrive/Desktop/coding/Z_Malicious/2_ML_Lab/src/process_kaggle_dataset.py)
-- **Trained Deep Keras Model:** [`models/isl_model.keras`](file:///c:/Users/ASUS/OneDrive/Desktop/coding/Z_Malicious/2_ML_Lab/models/isl_model.keras)
-- **Held-Out Test Set (12,551 Samples):** [`results/test_data.npz`](file:///c:/Users/ASUS/OneDrive/Desktop/coding/Z_Malicious/2_ML_Lab/results/test_data.npz)
-- **Test Confusion Matrix Plot:** [`results/test_confusion_matrix.png`](file:///c:/Users/ASUS/OneDrive/Desktop/coding/Z_Malicious/2_ML_Lab/results/test_confusion_matrix.png)
-- **Training Convergence Plots:** [`results/training_accuracy.png`](file:///c:/Users/ASUS/OneDrive/Desktop/coding/Z_Malicious/2_ML_Lab/results/training_accuracy.png) & [`results/training_loss.png`](file:///c:/Users/ASUS/OneDrive/Desktop/coding/Z_Malicious/2_ML_Lab/results/training_loss.png)
-- **Classification Report Log:** [`results/classification_report.txt`](file:///c:/Users/ASUS/OneDrive/Desktop/coding/Z_Malicious/2_ML_Lab/results/classification_report.txt)
-- **Live Assistive Application GUI:** [`src/app.py`](file:///c:/Users/ASUS/OneDrive/Desktop/coding/Z_Malicious/2_ML_Lab/src/app.py)
-- **Automated Verification Suite:** [`test_all_features.py`](file:///c:/Users/ASUS/OneDrive/Desktop/coding/Z_Malicious/2_ML_Lab/test_all_features.py)
+- **Test Metric Script:** [`src/evaluate_model.py`](src/evaluate_model.py)
+- **Model Training Architecture:** [`src/train_model.py`](src/train_model.py)
+- **Relative Normalization Engine:** [`src/process_kaggle_dataset.py`](src/process_kaggle_dataset.py)
+- **Trained Deep Keras Model:** [`models/isl_model.keras`](models/isl_model.keras)
+- **Held-Out Test Set (12,551 Samples):** [`results/test_data.npz`](results/test_data.npz)
+- **Test Confusion Matrix Plot:** [`results/test_confusion_matrix.png`](results/test_confusion_matrix.png)
+- **Training Convergence Plots:** [`results/training_accuracy.png`](results/training_accuracy.png) & [`results/training_loss.png`](results/training_loss.png)
+- **Classification Report Log:** [`results/classification_report.txt`](results/classification_report.txt)
+- **Live Assistive Application GUI:** [`src/app.py`](src/app.py)
+- **Automated Verification Suite:** [`test_all_features.py`](test_all_features.py) 

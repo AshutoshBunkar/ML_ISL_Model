@@ -157,7 +157,7 @@ Six letters in the ISL alphabet (`C`, `I`, `L`, `O`, `U`, `V`) are canonically s
 ## 5. Dataset Architecture & Preprocessing
 
 ### 5.1 Dataset Specifications
-The model was trained on the standardized large-scale Indian Sign Language landmark dataset, processed into [`dataset/isl_two_hand_landmarks.csv`](file:///c:/Users/ASUS/OneDrive/Desktop/coding/Z_Malicious/2_ML_Lab/dataset/isl_two_hand_landmarks.csv).
+The model was trained on the standardized large-scale Indian Sign Language landmark dataset, processed into [`dataset/isl_two_hand_landmarks.csv`](dataset/isl_two_hand_landmarks.csv).
 
 | Metric | Value | Technical Description |
 |---|---|---|
@@ -177,7 +177,7 @@ To eliminate data leakage, the 80/20 train/test partition was generated using st
 ## 6. Neural Network Architecture & Optimization
 
 ### 6.1 Deep MLP Layer Topology
-The classification network ([`models/isl_model.keras`](file:///c:/Users/ASUS/OneDrive/Desktop/coding/Z_Malicious/2_ML_Lab/models/isl_model.keras)) is an engineered deep feedforward architecture incorporating **Batch Normalization** and **Dropout** to eliminate internal covariate shift and ensure stable convergence.
+The classification network ([`models/isl_model.keras`](models/isl_model.keras)) is an engineered deep feedforward architecture incorporating **Batch Normalization** and **Dropout** to eliminate internal covariate shift and ensure stable convergence.
 
 ```
 Input Vector [126 Features]
@@ -315,7 +315,7 @@ A persistent vulnerability in desktop computer vision applications is hardware i
 1. **DirectShow vs. Media Foundation Conflicts:** Modern Windows 10/11 devices frequently fail or yield blank black frames when OpenCV calls `cv2.VideoCapture(0)` without an explicit backend.
 2. **Physical Privacy Shutters & Covers:** Modern laptops feature mechanical lens privacy sliders or `Fn+F10` hardware disconnect switches that return 0x00 bytes rather than throwing an OS exception, leading to silent black-screen failures.
 
-To address this, our system introduces [`src/camera_utils.py`](file:///c:/Users/ASUS/OneDrive/Desktop/coding/Z_Malicious/2_ML_Lab/src/camera_utils.py):
+To address this, our system introduces [`src/camera_utils.py`](src/camera_utils.py):
 
 ```
                    Hardware Probing Protocol:
@@ -400,7 +400,7 @@ Recognizing that real-world assistive communication requires flexible editing, t
 ### 9.4 Assistive Output & Communication
 - **Multi-Threaded Text-to-Speech (TTS):** Uses `pyttsx3` running in an asynchronous background thread (`threading.Thread(daemon=True)`). The system synthesizes natural spoken audio without dropping camera frames or stalling the Tkinter event loop.
 - **System Clipboard Integration:** Copies formed sentences directly to the Windows clipboard for pasting into messaging apps or documents.
-- **Timestamped Session Logging:** Appends recognized sentences with an ISO timestamp (`[YYYY-MM-DD HH:MM:SS]`) into [`isl_history.txt`](file:///c:/Users/ASUS/OneDrive/Desktop/coding/Z_Malicious/2_ML_Lab/isl_history.txt).
+- **Timestamped Session Logging:** Appends recognized sentences with an ISO timestamp (`[YYYY-MM-DD HH:MM:SS]`) into [`isl_history.txt`](isl_history.txt).
 - **Interactive Gesture Guide Modal:** A popup dialog displaying the complete 26-letter ISL alphabet grid alongside practical signing guidelines.
 - **Global Keyboard Shortcuts:** Comprehensive shortcut bindings (`Space`, `-`, `Backspace`, `Ctrl+Backspace`, `Delete`, `Ctrl+Z`, `Ctrl+C`, `S`, `P`, `Esc`).
 
@@ -408,7 +408,7 @@ Recognizing that real-world assistive communication requires flexible editing, t
 
 ## 10. Automated Verification & Testing Suite (`test_all_features.py`)
 
-To verify system reliability and provide verifiable evidence for supervisory assessment, an automated 11-step integration test suite was developed in [`test_all_features.py`](file:///c:/Users/ASUS/OneDrive/Desktop/coding/Z_Malicious/2_ML_Lab/test_all_features.py).
+To verify system reliability and provide verifiable evidence for supervisory assessment, an automated 11-step integration test suite was developed in [`test_all_features.py`](test_all_features.py).
 
 ### 10.1 Test Execution Results
 

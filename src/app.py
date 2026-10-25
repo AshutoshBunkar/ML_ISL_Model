@@ -44,7 +44,7 @@ import numpy as np
 import time
 import threading
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, font
 from collections import deque, Counter
 from PIL import Image, ImageTk
 
@@ -57,9 +57,10 @@ from camera_utils import probe_all_cameras, open_best_camera
 # FILE PATHS
 # ==================================================
 
-MODEL_PATH = "models/isl_model.keras"
-HAND_MODEL_PATH = "models/hand_landmarker.task"
-LABELS_PATH = "models/labels.npy"
+MODEL_PATH = os.path.join(_root_dir, "models", "isl_model.keras")
+HAND_MODEL_PATH = os.path.join(_root_dir, "models", "hand_landmarker.task")
+LABELS_PATH = os.path.join(_root_dir, "models", "labels.npy")
+HISTORY_FILE = os.path.join(_root_dir, "isl_history.txt")
 
 
 def check_files():
@@ -582,7 +583,7 @@ class ISLApp:
         self.sign_label = tk.Label(
             top_sign_row,
             text="...",
-            font=("Space Grotesk" if "Space Grotesk" in tk.font.families() else "Segoe UI", 42, "bold"),
+            font=("Space Grotesk" if "Space Grotesk" in font.families(self.root) else "Segoe UI", 42, "bold"),
             bg=card_bg,
             fg=color_brand,
             width=3
@@ -922,7 +923,7 @@ class ISLApp:
             return
         try:
             timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-            with open("isl_history.txt", "a", encoding="utf-8") as f:
+            with open(HISTORY_FILE, "a", encoding="utf-8") as f:
                 f.write(f"[{timestamp}] {self.text_buffer.strip()}\n")
             self._set_notification("✓ Saved to isl_history.txt")
             print(f"Saved: '[{timestamp}] {self.text_buffer}'")
@@ -973,7 +974,7 @@ class ISLApp:
         hdr.pack(fill="x")
         tk.Label(
             hdr, text="ISL Alphabet & Gesture Reference",
-            font=("Space Grotesk" if "Space Grotesk" in tk.font.families() else "Segoe UI", 13, "bold"),
+            font=("Space Grotesk" if "Space Grotesk" in font.families(self.root) else "Segoe UI", 13, "bold"),
             fg="#111827", bg="#ffffff"
         ).pack(anchor="w")
         tk.Label(

@@ -23,7 +23,21 @@ Output:
     dataset/isl_two_hand_landmarks.csv (62,753 clean samples)
 """
 
+import sys
 import os
+import subprocess
+
+# Auto-redirect to venv python if run with global python
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+_root_dir = os.path.dirname(_script_dir)
+_venv_python = os.path.join(_root_dir, "venv", "Scripts", "python.exe")
+
+if os.path.exists(_venv_python):
+    _curr = os.path.normcase(os.path.abspath(sys.executable))
+    _target = os.path.normcase(os.path.abspath(_venv_python))
+    if _curr != _target:
+        sys.exit(subprocess.run([_venv_python] + sys.argv).returncode)
+
 import string
 import pandas as pd
 import numpy as np
@@ -31,7 +45,7 @@ import numpy as np
 RAW_CSV_PATH = os.path.expanduser(
     r"~/.cache/kagglehub/datasets/eraakash/indian-sign-language-hand-landmarks-dataset/versions/1/Indian Sign Language Gesture Landmarks.csv"
 )
-OUTPUT_CSV_PATH = "dataset/isl_two_hand_landmarks.csv"
+OUTPUT_CSV_PATH = os.path.join(_root_dir, "dataset", "isl_two_hand_landmarks.csv")
 
 LETTER_MAP = dict(enumerate(string.ascii_uppercase))
 

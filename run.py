@@ -244,6 +244,17 @@ def main():
             except ValueError:
                 pass
 
+    if "help" in args or "h" in args:
+        print("\nIndian Sign Language Recognition System - CLI Usage:")
+        print("  python run.py                   Launch graphical launcher popup")
+        print("  python run.py web               Launch Web UI (FastAPI on http://127.0.0.1:8000)")
+        print("  python run.py gui               Launch Desktop Tkinter GUI App")
+        print("  python run.py predict           Launch OpenCV real-time predictor")
+        print("  python run.py camera            Launch Camera diagnostic test")
+        print("  Options:")
+        print("    --camera <index>              Specify camera hardware index (e.g. --camera 0)\n")
+        return
+
     if "web" in args or "fastapi" in args:
         launch_target("web_app.py", cam)
     elif "gui" in args or "app" in args:

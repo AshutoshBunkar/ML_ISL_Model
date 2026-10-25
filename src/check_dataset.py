@@ -8,20 +8,35 @@ Usage:
     python src/check_dataset.py --file dataset/isl_landmarks.csv
 """
 
+import sys
+import os
+import subprocess
+
+# Auto-redirect to venv python if run with global python
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+_root_dir = os.path.dirname(_script_dir)
+_venv_python = os.path.join(_root_dir, "venv", "Scripts", "python.exe")
+
+if os.path.exists(_venv_python):
+    _curr = os.path.normcase(os.path.abspath(sys.executable))
+    _target = os.path.normcase(os.path.abspath(_venv_python))
+    if _curr != _target:
+        sys.exit(subprocess.run([_venv_python] + sys.argv).returncode)
+
 import pandas as pd
 import numpy as np
-import os
-import sys
 
 
 # --------------------------------------------------
 # SETTINGS
 # --------------------------------------------------
 
-DEFAULT_CSV = "dataset/isl_landmarks.csv"
+_two_hand = os.path.join(_root_dir, "dataset", "isl_two_hand_landmarks.csv")
+_single_hand = os.path.join(_root_dir, "dataset", "isl_landmarks.csv")
+DEFAULT_CSV = _two_hand if os.path.exists(_two_hand) else _single_hand
 EXPECTED_LABELS = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
-EXPECTED_FEATURES = 63
-EXPECTED_COLUMNS = 64  # 63 features + 1 label
+EXPECTED_FEATURES = 126 if "two_hand" in DEFAULT_CSV else 63
+EXPECTED_COLUMNS = EXPECTED_FEATURES + 1  # features + 1 label
 
 
 # --------------------------------------------------

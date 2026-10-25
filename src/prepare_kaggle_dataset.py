@@ -20,11 +20,24 @@ Usage:
     python src/prepare_kaggle_dataset.py --max-per-class 500
 """
 
+import sys
+import os
+import subprocess
+
+# Auto-redirect to venv python if run with global python
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+_root_dir = os.path.dirname(_script_dir)
+_venv_python = os.path.join(_root_dir, "venv", "Scripts", "python.exe")
+
+if os.path.exists(_venv_python):
+    _curr = os.path.normcase(os.path.abspath(sys.executable))
+    _target = os.path.normcase(os.path.abspath(_venv_python))
+    if _curr != _target:
+        sys.exit(subprocess.run([_venv_python] + sys.argv).returncode)
+
 import cv2
 import mediapipe as mp
 import csv
-import os
-import sys
 import numpy as np
 from pathlib import Path
 
@@ -33,9 +46,9 @@ from pathlib import Path
 # SETTINGS
 # --------------------------------------------------
 
-MODEL_PATH = "models/hand_landmarker.task"
-DEFAULT_INPUT = "dataset/raw"
-CSV_FILE = "dataset/isl_landmarks.csv"
+MODEL_PATH = os.path.join(_root_dir, "models", "hand_landmarker.task")
+DEFAULT_INPUT = os.path.join(_root_dir, "dataset", "raw")
+CSV_FILE = os.path.join(_root_dir, "dataset", "isl_landmarks.csv")
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
 

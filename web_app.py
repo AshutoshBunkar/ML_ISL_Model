@@ -9,6 +9,7 @@ Usage:
 """
 import sys
 import os
+import subprocess
 import time
 import threading
 from contextlib import asynccontextmanager
@@ -18,6 +19,15 @@ from typing import Optional
 # Setup directories
 _root_dir = Path(__file__).resolve().parent
 _src_dir = _root_dir / "src"
+_venv_python = _root_dir / "venv" / "Scripts" / "python.exe"
+
+# Auto-redirect to venv if run with system python
+if _venv_python.exists():
+    _curr = os.path.normcase(os.path.abspath(sys.executable))
+    _target = os.path.normcase(str(_venv_python.resolve()))
+    if _curr != _target:
+        sys.exit(subprocess.run([str(_venv_python)] + sys.argv).returncode)
+
 sys.path.insert(0, str(_src_dir))
 
 import cv2

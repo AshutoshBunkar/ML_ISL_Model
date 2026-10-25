@@ -31,13 +31,16 @@ import time
 from collections import deque, Counter
 
 
+sys.path.insert(0, _script_dir)
+
+
 # ==================================================
 # FILE PATHS
 # ==================================================
 
-MODEL_PATH = "models/isl_model.keras"
-HAND_MODEL_PATH = "models/hand_landmarker.task"
-LABELS_PATH = "models/labels.npy"
+MODEL_PATH = os.path.join(_root_dir, "models", "isl_model.keras")
+HAND_MODEL_PATH = os.path.join(_root_dir, "models", "hand_landmarker.task")
+LABELS_PATH = os.path.join(_root_dir, "models", "labels.npy")
 
 
 # ==================================================

@@ -6,3 +6,7 @@ __pycache__/
 .vscode/
 .idea/
 *.zip
+*.log
+.DS_Store
+Thumbs.db
+.pytest_cache/

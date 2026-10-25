@@ -24,7 +24,7 @@ The system addresses the fundamental linguistic reality of Indian Sign Language:
 ## 🗂️ Dataset Architecture & Sampling Profile
 
 ### 1. Source & Scale
-The dataset originates from the standardized large-scale Indian Sign Language landmark collection (`eraakash/indian-sign-language-hand-landmarks-dataset`), processed into a unified 126-feature representation stored in [`dataset/isl_two_hand_landmarks.csv`](file:///c:/Users/ASUS/OneDrive/Desktop/coding/Z_Malicious/2_ML_Lab/dataset/isl_two_hand_landmarks.csv).
+The dataset originates from the standardized large-scale Indian Sign Language landmark collection (`eraakash/indian-sign-language-hand-landmarks-dataset`), processed into a unified 126-feature representation stored in [`dataset/isl_two_hand_landmarks.csv`](dataset/isl_two_hand_landmarks.csv).
 
 | Characteristic | Specification | Notes |
 |---|---|---|
@@ -53,7 +53,7 @@ Total Clean Dataset: 62,753 Samples
 
 In standard sign language vision pipelines, MediaPipe extracts 21 landmark points per hand ($[x, y, z]$). However, conventional independent wrist normalization discards the spatial vector between the hands, which is linguistically vital for ISL. 
 
-To overcome this, the model implements a **Deterministic Spatial Relative-Coordinate Pipeline** ([`process_kaggle_dataset.py`](file:///c:/Users/ASUS/OneDrive/Desktop/coding/Z_Malicious/2_ML_Lab/src/process_kaggle_dataset.py)):
+To overcome this, the model implements a **Deterministic Spatial Relative-Coordinate Pipeline** ([`process_kaggle_dataset.py`](src/process_kaggle_dataset.py)):
 
 ```
 Raw Camera Frame (OpenCV BGR → RGB)
@@ -109,7 +109,7 @@ MediaPipe Hand Landmarker (Up to 2 Hands, 42 Keypoints)
 
 ## 🧠 Neural Network Architecture & Parameter Profile
 
-The classification model ([`models/isl_model.keras`](file:///c:/Users/ASUS/OneDrive/Desktop/coding/Z_Malicious/2_ML_Lab/models/isl_model.keras)) is a specialized deep feedforward neural network engineered with **Batch Normalization** and **Dropout Regularization** to combat internal covariate shift and avoid overfitting across 126 coordinate dimensions.
+The classification model ([`models/isl_model.keras`](models/isl_model.keras)) is a specialized deep feedforward neural network engineered with **Batch Normalization** and **Dropout Regularization** to combat internal covariate shift and avoid overfitting across 126 coordinate dimensions.
 
 ### Detailed Layer Specification
 
@@ -152,7 +152,7 @@ The classification model ([`models/isl_model.keras`](file:///c:/Users/ASUS/OneDr
 
 ## 📈 Training Dynamics & Convergence History
 
-The model converged smoothly over 35 epochs without destabilizing or overfitting, as recorded in [`results/training_history.json`](file:///c:/Users/ASUS/OneDrive/Desktop/coding/Z_Malicious/2_ML_Lab/results/training_history.json).
+The model converged smoothly over 35 epochs without destabilizing or overfitting, as recorded in [`results/training_history.json`](results/training_history.json).
 
 ### Epoch-by-Epoch Progress Snapshot
 
@@ -177,14 +177,14 @@ Val Acc:  86.04% ─────────────────────
 ```
 
 Generated training diagnostic plots are archived in:
-- Accuracy Trajectory: [`results/training_accuracy.png`](file:///c:/Users/ASUS/OneDrive/Desktop/coding/Z_Malicious/2_ML_Lab/results/training_accuracy.png)
-- Loss Trajectory: [`results/training_loss.png`](file:///c:/Users/ASUS/OneDrive/Desktop/coding/Z_Malicious/2_ML_Lab/results/training_loss.png)
+- Accuracy Trajectory: [`results/training_accuracy.png`](results/training_accuracy.png)
+- Loss Trajectory: [`results/training_loss.png`](results/training_loss.png)
 
 ---
 
 ## 🎯 Global Evaluation Metrics on Held-Out Test Data
 
-The model was evaluated against **12,551 completely unseen held-out test samples** saved in [`results/test_data.npz`](file:///c:/Users/ASUS/OneDrive/Desktop/coding/Z_Malicious/2_ML_Lab/results/test_data.npz).
+The model was evaluated against **12,551 completely unseen held-out test samples** saved in [`results/test_data.npz`](results/test_data.npz).
 
 | Metric | Measured Score | Mathematical Definition | Evaluation Standard |
 |---|:---:|:---|:---|
@@ -302,13 +302,13 @@ Exact Residual Error Breakdown:
 2. **Single-Hand Geometric Ambiguity:** All 35 errors occurred among single-hand signs (`C, I, L, U, X`). In particular, `C` and `U` account for **20 out of the 35 errors (57.1%)**. In both signs, the fingers form an open curved cup; minor variations in hand rotation toward the camera can cause subtle coordinate overlap.
 3. **Static Representation of Dynamic Signs:** Letters `J` and `Z` involve dynamic motion in full ISL. In static landmark datasets, `J` is captured as an extended finger pose, occasionally producing a single boundary confusion (`J \to U`).
 
-The visual confusion matrix is archived at [`results/test_confusion_matrix.png`](file:///c:/Users/ASUS/OneDrive/Desktop/coding/Z_Malicious/2_ML_Lab/results/test_confusion_matrix.png).
+The visual confusion matrix is archived at [`results/test_confusion_matrix.png`](results/test_confusion_matrix.png).
 
 ---
 
 ## ⚡ Real-Time Inference & Latency Profile
 
-The model is integrated into a complete real-time assistive desktop application ([`src/app.py`](file:///c:/Users/ASUS/OneDrive/Desktop/coding/Z_Malicious/2_ML_Lab/src/app.py)) featuring live webcam capture, dual-hand skeleton rendering, confidence estimation, temporal smoothing, letter auto-confirmation, and offline Text-to-Speech (`pyttsx3`).
+The model is integrated into a complete real-time assistive desktop application ([`src/app.py`](src/app.py)) featuring live webcam capture, dual-hand skeleton rendering, confidence estimation, temporal smoothing, letter auto-confirmation, and offline Text-to-Speech (`pyttsx3`).
 
 ### Pipeline Execution Timing Benchmark (Measured on Standard Intel/AMD CPU)
 
@@ -333,7 +333,7 @@ The model is integrated into a complete real-time assistive desktop application 
 
 ## ⚖️ In-Depth Comparative Benchmark: Single-Hand Model vs. Standard Two-Hand Model
 
-To rigorously evaluate the impact of the Standard Two-Hand Relative-Coordinate Model, we conducted a direct comparison against the baseline **Single-Hand ISL Model** ([`PROJECT_REPORT.md`](file:///c:/Users/ASUS/OneDrive/Desktop/coding/Z_Malicious/2_ML_Lab/PROJECT_REPORT.md) and historical git records).
+To rigorously evaluate the impact of the Standard Two-Hand Relative-Coordinate Model, we conducted a direct comparison against the baseline **Single-Hand ISL Model** ([`PROJECT_REPORT.md`](PROJECT_REPORT.md) and historical git records).
 
 ### 1. High-Level Macro Metric Comparison
 
@@ -474,7 +474,7 @@ python src/camera_test.py
 ```bash
 python src/evaluate_model.py
 ```
-* Loads [`results/test_data.npz`](file:///c:/Users/ASUS/OneDrive/Desktop/coding/Z_Malicious/2_ML_Lab/results/test_data.npz) (12,551 unseen test samples), evaluates [`models/isl_model.keras`](file:///c:/Users/ASUS/OneDrive/Desktop/coding/Z_Malicious/2_ML_Lab/models/isl_model.keras), and outputs the complete classification report and confusion matrix.
+* Loads [`results/test_data.npz`](results/test_data.npz) (12,551 unseen test samples), evaluates [`models/isl_model.keras`](models/isl_model.keras), and outputs the complete classification report and confusion matrix.
 
 ### 6. Standalone Two-Hand Inference HUD
 ```bash

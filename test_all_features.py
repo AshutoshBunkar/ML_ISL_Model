@@ -5,6 +5,7 @@ audio, camera switching, and modal dialogs.
 """
 import sys
 import os
+import subprocess
 import time
 import numpy as np
 
@@ -12,6 +13,15 @@ import numpy as np
 sys.stdout.reconfigure(encoding='utf-8')
 
 root_dir = os.path.dirname(os.path.abspath(__file__))
+venv_python = os.path.join(root_dir, "venv", "Scripts", "python.exe")
+
+# Auto-redirect to venv python if run with global python
+if os.path.exists(venv_python):
+    curr = os.path.normcase(os.path.abspath(sys.executable))
+    target = os.path.normcase(os.path.abspath(venv_python))
+    if curr != target:
+        sys.exit(subprocess.run([venv_python] + sys.argv).returncode)
+
 src_dir = os.path.join(root_dir, "src")
 sys.path.insert(0, src_dir)
 

@@ -10,14 +10,27 @@ Usage:
     python src/train_model.py --epochs 50
 """
 
+import sys
+import os
+import subprocess
+
+# Auto-redirect to venv python if run with global python
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+_root_dir = os.path.dirname(_script_dir)
+_venv_python = os.path.join(_root_dir, "venv", "Scripts", "python.exe")
+
+if os.path.exists(_venv_python):
+    _curr = os.path.normcase(os.path.abspath(sys.executable))
+    _target = os.path.normcase(os.path.abspath(_venv_python))
+    if _curr != _target:
+        sys.exit(subprocess.run([_venv_python] + sys.argv).returncode)
+
 import numpy as np
 import pandas as pd
 import tensorflow as tf
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import os
-import sys
 import json
 
 from sklearn.model_selection import train_test_split
@@ -29,13 +42,15 @@ from sklearn.metrics import accuracy_score
 # FILE PATHS
 # --------------------------------------------------
 
-DATASET_PATH = "dataset/isl_two_hand_landmarks.csv" if os.path.exists("dataset/isl_two_hand_landmarks.csv") else "dataset/isl_landmarks.csv"
-MODEL_PATH = "models/isl_model.keras"
-LABELS_PATH = "models/labels.npy"
-TEST_DATA_PATH = "results/test_data.npz"
-HISTORY_PATH = "results/training_history.json"
-ACCURACY_PLOT = "results/training_accuracy.png"
-LOSS_PLOT = "results/training_loss.png"
+_two_hand_csv = os.path.join(_root_dir, "dataset", "isl_two_hand_landmarks.csv")
+_single_hand_csv = os.path.join(_root_dir, "dataset", "isl_landmarks.csv")
+DATASET_PATH = _two_hand_csv if os.path.exists(_two_hand_csv) else _single_hand_csv
+MODEL_PATH = os.path.join(_root_dir, "models", "isl_model.keras")
+LABELS_PATH = os.path.join(_root_dir, "models", "labels.npy")
+TEST_DATA_PATH = os.path.join(_root_dir, "results", "test_data.npz")
+HISTORY_PATH = os.path.join(_root_dir, "results", "training_history.json")
+ACCURACY_PLOT = os.path.join(_root_dir, "results", "training_accuracy.png")
+LOSS_PLOT = os.path.join(_root_dir, "results", "training_loss.png")
 
 
 # --------------------------------------------------
@@ -134,8 +149,8 @@ def main():
     dataset_path, max_epochs, batch_size = parse_args()
 
     # Create output directories
-    os.makedirs("models", exist_ok=True)
-    os.makedirs("results", exist_ok=True)
+    os.makedirs(os.path.join(_root_dir, "models"), exist_ok=True)
+    os.makedirs(os.path.join(_root_dir, "results"), exist_ok=True)
 
     print()
     print("=" * 60)

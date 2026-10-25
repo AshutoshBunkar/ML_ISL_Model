@@ -9,7 +9,7 @@ Before presenting to your supervisor or review committee, ensure the following s
 
 - [ ] Open PowerShell or Terminal in the project directory:
   ```powershell
-  cd "c:\Users\ASUS\OneDrive\Desktop\coding\Z_Malicious\2_ML_Lab"
+  cd path\to\ML_ISL_Model
   ```
 - [ ] Activate the virtual environment:
   ```powershell
