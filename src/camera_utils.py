@@ -52,10 +52,11 @@ def probe_all_cameras(max_indices=3):
                     is_active = (std_val > 3.0 and mean_val > 4.0)
 
                     # Distinguish physical vs dummy devices
+                    desc = "Smart Connect Phone Cam" if idx == 1 else "Built-in WebCam"
                     if is_active:
-                        label = f"Camera {idx} ({backend_name}) - Active Feed [{w}x{h}]"
+                        label = f"Camera {idx} [{backend_name}] ({desc}) - Active Feed [{w}x{h}]"
                     else:
-                        label = f"Camera {idx} ({backend_name}) - Blank/Cover Closed [{w}x{h}]"
+                        label = f"Camera {idx} [{backend_name}] ({desc}) - Blank/Cover Closed [{w}x{h}]"
 
                     device_info = {
                         "index": idx,
@@ -94,18 +95,24 @@ def open_best_camera(preferred_idx=None, preferred_backend=None):
     if preferred_idx is not None:
         if preferred_backend is not None:
             candidates.append((preferred_backend, preferred_idx))
-        candidates.append((cv2.CAP_DSHOW, preferred_idx))
-        candidates.append((cv2.CAP_MSMF, preferred_idx))
+        # Prioritize MSMF for secondary index (SmartConnect phone cams stream best over MSMF)
+        if preferred_idx != 0:
+            candidates.append((cv2.CAP_MSMF, preferred_idx))
+            candidates.append((cv2.CAP_DSHOW, preferred_idx))
+        else:
+            candidates.append((cv2.CAP_DSHOW, preferred_idx))
+            candidates.append((cv2.CAP_MSMF, preferred_idx))
         candidates.append((None, preferred_idx))
 
     # Add standard known working configurations
+    # Index 1 MSMF is SmartConnect / smartphone webcam, Index 0 DirectShow is built-in HD webcam
     standard_configs = [
-        (cv2.CAP_DSHOW, 0),
         (cv2.CAP_MSMF, 1),
+        (cv2.CAP_DSHOW, 0),
         (cv2.CAP_MSMF, 0),
         (cv2.CAP_DSHOW, 1),
-        (None, 0),
         (None, 1),
+        (None, 0),
     ]
     for cfg in standard_configs:
         if cfg not in candidates:

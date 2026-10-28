@@ -43,6 +43,8 @@ import tensorflow as tf
 import numpy as np
 import time
 import threading
+import queue
+import json
 import tkinter as tk
 from tkinter import ttk, messagebox, font
 from collections import deque, Counter
@@ -61,6 +63,7 @@ MODEL_PATH = os.path.join(_root_dir, "models", "isl_model.keras")
 HAND_MODEL_PATH = os.path.join(_root_dir, "models", "hand_landmarker.task")
 LABELS_PATH = os.path.join(_root_dir, "models", "labels.npy")
 HISTORY_FILE = os.path.join(_root_dir, "isl_history.txt")
+A11Y_CONFIG_PATH = os.path.join(_root_dir, "accessibility_settings.json")
 
 
 def check_files():
@@ -83,52 +86,116 @@ def check_files():
 # ==================================================
 
 class SpeechEngine:
-    """Thread-safe text-to-speech engine using pyttsx3."""
+    """Thread-safe text-to-speech engine using a dedicated worker thread with pyttsx3."""
 
     def __init__(self):
         self.available = False
+        self.queue = queue.Queue()
         self.speaking = False
+        self.worker = None
 
         try:
             import pyttsx3
-            self.engine = pyttsx3.init()
-            self.engine.setProperty("rate", 150)
-            self.engine.setProperty("volume", 0.9)
+            # Test that pyttsx3 can be imported
             self.available = True
+            self.worker = threading.Thread(target=self._worker_loop, daemon=True, name="TTSWorker")
+            self.worker.start()
             print("Text-to-speech: Available")
         except Exception as e:
             print(f"Text-to-speech: Not available ({e})")
-            self.engine = None
+
+    def _init_engine(self):
+        """Helper to create and configure a pyttsx3 engine instance."""
+        import pyttsx3
+        engine = pyttsx3.init()
+        engine.setProperty("rate", 150)
+        engine.setProperty("volume", 0.9)
+        return engine
+
+    def _worker_loop(self):
+        """Dedicated thread loop for pyttsx3 to preserve COM apartment state."""
+        try:
+            import pythoncom
+            pythoncom.CoInitialize()
+        except Exception:
+            pass
+
+        engine = None
+        try:
+            engine = self._init_engine()
+        except Exception as e:
+            print(f"TTS Worker init error: {e}")
+            self.available = False
+            return
+
+        while True:
+            try:
+                item = self.queue.get()
+                if item is None:
+                    break
+                text = str(item).strip()
+                if not text:
+                    self.queue.task_done()
+                    continue
+
+                self.speaking = True
+
+                # Fix pyttsx3 driver state for repeated calls:
+                # pyttsx3's SAPI5 driver leaves proxy._busy = False after runAndWait().
+                # When say() is subsequently called, _pump() fires immediately and starts
+                # asynchronous playback before runAndWait() can push endLoop. Then
+                # startLoop() immediately pops endLoop, calling stop() and aborting audio.
+                # Setting proxy._busy = True and resetting _inLoop ensures say and endLoop
+                # sequence correctly on every consecutive call.
+                if hasattr(engine, "proxy"):
+                    engine.proxy._busy = True
+                    if hasattr(engine.proxy, "_queue"):
+                        engine.proxy._queue.clear()
+                if hasattr(engine, "_inLoop"):
+                    engine._inLoop = False
+
+                engine.say(text)
+                engine.runAndWait()
+            except Exception as e:
+                print(f"Speech playback error: {e}")
+                try:
+                    if engine is not None:
+                        del engine
+                except Exception:
+                    pass
+                try:
+                    engine = self._init_engine()
+                except Exception as reinit_err:
+                    print(f"TTS Re-initialization error: {reinit_err}")
+                    engine = None
+            finally:
+                self.speaking = False
+                self.queue.task_done()
+
+        try:
+            import pythoncom
+            pythoncom.CoUninitialize()
+        except Exception:
+            pass
 
     def speak(self, text):
-        """Speak text in a background thread."""
-        if not self.available or not text.strip():
+        """Speak text through the dedicated TTS worker thread."""
+        if not self.available or text is None:
+            return
+        cleaned = str(text).strip()
+        if not cleaned:
             return
 
-        if self.speaking:
-            return
+        self.queue.put(cleaned)
 
-        thread = threading.Thread(
-            target=self._speak_thread,
-            args=(text,),
-            daemon=True
-        )
-        thread.start()
+    def is_speaking(self):
+        """Check if speech synthesis is currently active."""
+        return self.speaking
 
-    def _speak_thread(self, text):
-        try:
-            self.speaking = True
-            import pyttsx3
-            engine = pyttsx3.init()
-            engine.setProperty("rate", 150)
-            engine.setProperty("volume", 0.9)
-            engine.say(text)
-            engine.runAndWait()
-            engine.stop()
-        except Exception as e:
-            print(f"Speech error: {e}")
-        finally:
-            self.speaking = False
+    def stop(self):
+        """Signal the TTS worker thread to terminate."""
+        if self.available and self.worker and self.worker.is_alive():
+            self.queue.put(None)
 
 
 # ==================================================
@@ -331,11 +398,20 @@ class ISLApp:
     # ==================================================
 
     def _create_gui(self):
-        """Construct the Tkinter interface styled with the SE_PROJECT design theme."""
+        """Construct the Tkinter interface styled with the SE_PROJECT design theme and accessibility support."""
         self.root = tk.Tk()
         self.root.title("Indian Sign Language Recognition System")
         self.root.configure(bg="#fafafa")
-        self.root.resizable(False, False)
+        self.root.resizable(True, True)
+        self.root.minsize(1060, 680)
+
+        # Accessibility State (Tkinter variables initialized after tk.Tk())
+        self.a11y_dark_mode = tk.BooleanVar(value=False)
+        self.a11y_invert_colors = tk.BooleanVar(value=False)
+        self.a11y_large_cursor = tk.BooleanVar(value=False)
+        self.a11y_high_contrast = tk.BooleanVar(value=False)
+        self.a11y_text_size = tk.StringVar(value="Default")
+        self._load_a11y_settings()
 
         # Bring window to front
         self.root.lift()
@@ -343,90 +419,100 @@ class ISLApp:
         self.root.after(800, lambda: self.root.attributes('-topmost', False))
         self.root.focus_force()
 
-        # Fonts (Space Grotesk display style)
+        # Dynamic Fonts for Accessibility (supports Small, Default, Large)
         try:
-            title_font = ("Space Grotesk", 13, "bold")
-            heading_font = ("Space Grotesk", 11, "bold")
+            display_family = "Space Grotesk" if "Space Grotesk" in font.families(self.root) else "Segoe UI"
         except Exception:
-            title_font = ("Segoe UI", 13, "bold")
-            heading_font = ("Segoe UI", 11, "bold")
+            display_family = "Segoe UI"
 
-        label_font = ("Segoe UI", 10)
-        text_font = ("Consolas", 13)
-        btn_font = ("Segoe UI", 9, "bold")
-        small_font = ("Segoe UI", 8)
+        self.font_title = font.Font(family=display_family, size=13, weight="bold")
+        self.font_heading = font.Font(family=display_family, size=11, weight="bold")
+        self.font_label = font.Font(family="Segoe UI", size=10)
+        self.font_text = font.Font(family="Consolas", size=13)
+        self.font_btn = font.Font(family="Segoe UI", size=9, weight="bold")
+        self.font_small = font.Font(family="Segoe UI", size=8)
+        self.font_sub = font.Font(family="Segoe UI", size=7, weight="bold")
+        self.font_sign = font.Font(family=display_family, size=42, weight="bold")
 
-        # SE_PROJECT Theme Color Tokens
-        bg_canvas = "#fafafa"
-        card_bg = "#ffffff"
-        border_col = "#e2e8f0"
+        # Theme Accent Constants
         color_brand = "#ff6b00"
         color_brand_subtle = "#fff0e6"
-        color_primary = "#000000"
-        color_success = "#10b981"
-        color_danger = "#ef4444"
-        text_primary = "#111827"
-        text_secondary = "#4b5563"
-        text_muted = "#6b7280"
 
         # --------------------------------------------------
-        # TOP HEADER (SE_PROJECT Navbar style: White with subtle border)
+        # MENUBAR (Accessibility cascade for keyboard & screen readers)
         # --------------------------------------------------
-        header_frame = tk.Frame(self.root, bg="#ffffff", padx=16, pady=10, bd=1, relief="solid")
-        header_frame.pack(fill="x")
+        menubar = tk.Menu(self.root)
+        a11y_menu = tk.Menu(menubar, tearoff=0)
+        a11y_menu.add_checkbutton(label="Dark Mode (Ctrl+D)", variable=self.a11y_dark_mode, command=self._on_a11y_change)
+        a11y_menu.add_checkbutton(label="Invert Colors (Ctrl+I)", variable=self.a11y_invert_colors, command=self._on_a11y_change)
+        a11y_menu.add_checkbutton(label="High Contrast Mode (Ctrl+H)", variable=self.a11y_high_contrast, command=self._on_a11y_change)
+        a11y_menu.add_checkbutton(label="Large Cursor (Ctrl+L)", variable=self.a11y_large_cursor, command=self._on_cursor_change)
+        a11y_menu.add_separator()
+        a11y_menu.add_radiobutton(label="Text Size: Small", variable=self.a11y_text_size, value="Small", command=self._on_text_size_change)
+        a11y_menu.add_radiobutton(label="Text Size: Default", variable=self.a11y_text_size, value="Default", command=self._on_text_size_change)
+        a11y_menu.add_radiobutton(label="Text Size: Large", variable=self.a11y_text_size, value="Large", command=self._on_text_size_change)
+        menubar.add_cascade(label="Accessibility", menu=a11y_menu)
+        self.root.config(menu=menubar)
+
+        # --------------------------------------------------
+        # TOP HEADER (SE_PROJECT Navbar style)
+        # --------------------------------------------------
+        self.header_frame = tk.Frame(self.root, bg="#ffffff", padx=16, pady=9, bd=1, relief="solid")
+        self.header_frame.pack(fill="x")
 
         # Brand Logo Box
-        logo_box = tk.Label(
-            header_frame, text="ISL", font=("Segoe UI", 10, "bold"),
+        self.logo_box = tk.Label(
+            self.header_frame, text="ISL", font=self.font_btn,
             bg=color_brand, fg="#ffffff", padx=6, pady=2
         )
-        logo_box.pack(side="left", padx=(0, 8))
+        self.logo_box.pack(side="left", padx=(0, 8))
 
-        title_lbl = tk.Label(
-            header_frame,
+        self.title_lbl = tk.Label(
+            self.header_frame,
             text="INDIAN SIGN LANGUAGE RECOGNITION",
-            font=title_font,
-            fg=text_primary,
+            font=self.font_title,
+            fg="#111827",
             bg="#ffffff"
         )
-        title_lbl.pack(side="left")
+        self.title_lbl.pack(side="left")
 
         # Engine Badge
-        badge_lbl = tk.Label(
-            header_frame,
+        self.badge_lbl = tk.Label(
+            self.header_frame,
             text="Engine v1.0",
-            font=("Segoe UI", 8, "bold"),
+            font=self.font_small,
             fg=color_brand,
             bg=color_brand_subtle,
             padx=6, pady=2
         )
-        badge_lbl.pack(side="left", padx=(8, 0))
+        self.badge_lbl.pack(side="left", padx=(8, 0))
 
         # Camera selection dropdown in header
-        cam_sel_frame = tk.Frame(header_frame, bg="#ffffff")
-        cam_sel_frame.pack(side="right")
+        self.cam_sel_frame = tk.Frame(self.header_frame, bg="#ffffff")
+        self.cam_sel_frame.pack(side="right")
 
-        tk.Label(
-            cam_sel_frame, text="Camera Source:", font=small_font, fg=text_secondary, bg="#ffffff"
-        ).pack(side="left", padx=(0, 4))
+        self.cam_sel_lbl = tk.Label(
+            self.cam_sel_frame, text="Camera Source:", font=self.font_small, fg="#4b5563", bg="#ffffff"
+        )
+        self.cam_sel_lbl.pack(side="left", padx=(0, 4))
 
         self.cam_combo_var = tk.StringVar()
         self.cam_combobox = ttk.Combobox(
-            cam_sel_frame,
+            self.cam_sel_frame,
             textvariable=self.cam_combo_var,
             state="readonly",
-            width=28,
+            width=26,
             font=("Segoe UI", 8)
         )
         self.cam_combobox.pack(side="left", padx=(0, 6))
         self.cam_combobox.bind("<<ComboboxSelected>>", self._on_camera_selected)
 
         self.btn_rescan_cam = tk.Button(
-            cam_sel_frame,
+            self.cam_sel_frame,
             text="🔄 Rescan",
-            font=small_font,
+            font=self.font_small,
             bg="#ffffff",
-            fg=text_primary,
+            fg="#111827",
             activebackground="#f3f4f6",
             bd=1,
             relief="solid",
@@ -437,98 +523,179 @@ class ISLApp:
         self.btn_rescan_cam.pack(side="left")
 
         # --------------------------------------------------
+        # ACCESSIBILITY BAR (Compact HCI Controls Toolbar)
+        # --------------------------------------------------
+        self.a11y_bar = tk.Frame(self.root, bg="#f9fafb", padx=14, pady=4, bd=1, relief="solid")
+        self.a11y_bar.pack(fill="x")
+
+        self.a11y_lbl = tk.Label(
+            self.a11y_bar, text="♿ Accessibility:",
+            font=self.font_btn, fg="#111827", bg="#f9fafb"
+        )
+        self.a11y_lbl.pack(side="left", padx=(0, 8))
+
+        self.cb_dark = tk.Checkbutton(
+            self.a11y_bar, text="🌙 Dark Mode",
+            variable=self.a11y_dark_mode,
+            font=self.font_small, fg="#111827", bg="#f9fafb",
+            activebackground="#f9fafb", activeforeground=color_brand,
+            cursor="hand2", command=self._on_a11y_change
+        )
+        self.cb_dark.pack(side="left", padx=4)
+
+        self.cb_invert = tk.Checkbutton(
+            self.a11y_bar, text="🔄 Invert Colors",
+            variable=self.a11y_invert_colors,
+            font=self.font_small, fg="#111827", bg="#f9fafb",
+            activebackground="#f9fafb", activeforeground=color_brand,
+            cursor="hand2", command=self._on_a11y_change
+        )
+        self.cb_invert.pack(side="left", padx=4)
+
+        self.cb_contrast = tk.Checkbutton(
+            self.a11y_bar, text="🔲 High Contrast",
+            variable=self.a11y_high_contrast,
+            font=self.font_small, fg="#111827", bg="#f9fafb",
+            activebackground="#f9fafb", activeforeground=color_brand,
+            cursor="hand2", command=self._on_a11y_change
+        )
+        self.cb_contrast.pack(side="left", padx=4)
+
+        self.cb_cursor = tk.Checkbutton(
+            self.a11y_bar, text="🔍 Large Cursor",
+            variable=self.a11y_large_cursor,
+            font=self.font_small, fg="#111827", bg="#f9fafb",
+            activebackground="#f9fafb", activeforeground=color_brand,
+            cursor="hand2", command=self._on_cursor_change
+        )
+        self.cb_cursor.pack(side="left", padx=4)
+
+        self.a11y_sep_lbl = tk.Label(
+            self.a11y_bar, text="|  Text Size:",
+            font=self.font_small, fg="#4b5563", bg="#f9fafb"
+        )
+        self.a11y_sep_lbl.pack(side="left", padx=(8, 4))
+
+        self.rb_small = tk.Radiobutton(
+            self.a11y_bar, text="Small", value="Small",
+            variable=self.a11y_text_size,
+            font=self.font_small, fg="#111827", bg="#f9fafb",
+            activebackground="#f9fafb", activeforeground=color_brand,
+            cursor="hand2", command=self._on_text_size_change
+        )
+        self.rb_small.pack(side="left", padx=2)
+
+        self.rb_default = tk.Radiobutton(
+            self.a11y_bar, text="Default", value="Default",
+            variable=self.a11y_text_size,
+            font=self.font_small, fg="#111827", bg="#f9fafb",
+            activebackground="#f9fafb", activeforeground=color_brand,
+            cursor="hand2", command=self._on_text_size_change
+        )
+        self.rb_default.pack(side="left", padx=2)
+
+        self.rb_large = tk.Radiobutton(
+            self.a11y_bar, text="Large", value="Large",
+            variable=self.a11y_text_size,
+            font=self.font_small, fg="#111827", bg="#f9fafb",
+            activebackground="#f9fafb", activeforeground=color_brand,
+            cursor="hand2", command=self._on_text_size_change
+        )
+        self.rb_large.pack(side="left", padx=2)
+
+        # --------------------------------------------------
         # MAIN BODY (2 COLUMNS)
         # --------------------------------------------------
-        body = tk.Frame(self.root, bg=bg_canvas, padx=14, pady=12)
-        body.pack(fill="both", expand=True)
+        self.body = tk.Frame(self.root, bg="#fafafa", padx=14, pady=10)
+        self.body.pack(fill="both", expand=True)
 
         # ==================================================
         # LEFT COLUMN: CAMERA & VIDEO OPTIONS
         # ==================================================
-        left_col = tk.Frame(body, bg=bg_canvas)
-        left_col.pack(side="left", padx=(0, 12))
+        self.left_col = tk.Frame(self.body, bg="#fafafa")
+        self.left_col.pack(side="left", padx=(0, 12))
 
         # Camera viewport container
-        cam_card = tk.LabelFrame(
-            left_col, text="  Live Video Feed  ",
-            font=heading_font, fg=text_primary, bg=card_bg,
+        self.cam_card = tk.LabelFrame(
+            self.left_col, text="  Live Video Feed  ",
+            font=self.font_heading, fg="#111827", bg="#ffffff",
             padx=8, pady=8, bd=1, relief="solid"
         )
-        cam_card.pack(fill="x")
+        self.cam_card.pack(fill="x")
 
         # Fixed 640x480 video canvas
-        cam_box = tk.Frame(cam_card, width=640, height=480, bg="#000000")
-        cam_box.pack_propagate(False)
-        cam_box.pack()
+        self.cam_box = tk.Frame(self.cam_card, width=640, height=480, bg="#000000")
+        self.cam_box.pack_propagate(False)
+        self.cam_box.pack()
 
         self.camera_label = tk.Label(
-            cam_box,
+            self.cam_box,
             text="Initializing webcam feed...",
-            font=label_font,
+            font=self.font_label,
             bg="#000000",
             fg="#94a3b8"
         )
         self.camera_label.pack(fill="both", expand=True)
 
         # Video Options Toolbar underneath camera
-        opts_frame = tk.Frame(cam_card, bg="#f8f9fa", pady=6, padx=8)
-        opts_frame.pack(fill="x", pady=(6, 0))
+        self.opts_frame = tk.Frame(self.cam_card, bg="#f8f9fa", pady=6, padx=8)
+        self.opts_frame.pack(fill="x", pady=(6, 0))
 
         self.var_mirror = tk.BooleanVar(value=True)
-        cb_mirror = tk.Checkbutton(
-            opts_frame, text="Mirror Video",
+        self.cb_mirror = tk.Checkbutton(
+            self.opts_frame, text="Mirror Video",
             variable=self.var_mirror,
-            font=small_font, fg=text_primary, bg="#f8f9fa",
+            font=self.font_small, fg="#111827", bg="#f8f9fa",
             selectcolor="#ffffff", activebackground="#f8f9fa", activeforeground=color_brand
         )
-        cb_mirror.pack(side="left", padx=(2, 10))
+        self.cb_mirror.pack(side="left", padx=(2, 10))
 
         self.var_landmarks = tk.BooleanVar(value=True)
-        cb_landmarks = tk.Checkbutton(
-            opts_frame, text="Show Skeleton",
+        self.cb_landmarks = tk.Checkbutton(
+            self.opts_frame, text="Show Skeleton",
             variable=self.var_landmarks,
-            font=small_font, fg=text_primary, bg="#f8f9fa",
+            font=self.font_small, fg="#111827", bg="#f8f9fa",
             selectcolor="#ffffff", activebackground="#f8f9fa", activeforeground=color_brand
         )
-        cb_landmarks.pack(side="left", padx=(0, 10))
+        self.cb_landmarks.pack(side="left", padx=(0, 10))
 
         self.var_auto_add = tk.BooleanVar(value=True)
-        cb_auto = tk.Checkbutton(
-            opts_frame, text="Auto-Add Held Sign",
+        self.cb_auto = tk.Checkbutton(
+            self.opts_frame, text="Auto-Add Held Sign",
             variable=self.var_auto_add,
-            font=small_font, fg=text_primary, bg="#f8f9fa",
+            font=self.font_small, fg="#111827", bg="#f8f9fa",
             selectcolor="#ffffff", activebackground="#f8f9fa", activeforeground=color_brand
         )
-        cb_auto.pack(side="left", padx=(0, 10))
+        self.cb_auto.pack(side="left", padx=(0, 10))
 
         self.var_paused = tk.BooleanVar(value=False)
         self.btn_pause = tk.Button(
-            opts_frame,
+            self.opts_frame,
             text="⏸ Pause",
-            font=small_font,
-            bg="#ffffff", fg=text_primary,
-            activebackground="#f3f4f6", activeforeground=text_primary,
+            font=self.font_small,
+            bg="#ffffff", fg="#111827",
+            activebackground="#f3f4f6", activeforeground="#111827",
             bd=1, relief="solid", padx=10, pady=2, cursor="hand2",
             command=self.toggle_pause
         )
         self.btn_pause.pack(side="right", padx=(0, 2))
 
         # Sliders card for fine-tuning
-        sliders_card = tk.Frame(cam_card, bg=card_bg, pady=6)
-        sliders_card.pack(fill="x")
+        self.sliders_card = tk.Frame(self.cam_card, bg="#ffffff", pady=6)
+        self.sliders_card.pack(fill="x")
 
         # Confidence slider
-        s_left = tk.Frame(sliders_card, bg=card_bg)
-        s_left.pack(side="left", fill="x", expand=True, padx=(5, 10))
+        self.s_left = tk.Frame(self.sliders_card, bg="#ffffff")
+        self.s_left.pack(side="left", fill="x", expand=True, padx=(5, 10))
 
         self.conf_val_lbl = tk.Label(
-            s_left, text="Min Confidence: 70%", font=small_font, fg=text_secondary, bg=card_bg
+            self.s_left, text="Min Confidence: 70%", font=self.font_small, fg="#4b5563", bg="#ffffff"
         )
         self.conf_val_lbl.pack(anchor="w")
 
         self.conf_slider = tk.Scale(
-            s_left, from_=50, to=95, orient="horizontal",
-            bg=card_bg, fg=text_primary, highlightthickness=0,
+            self.s_left, from_=50, to=95, orient="horizontal",
+            bg="#ffffff", fg="#111827", highlightthickness=0,
             troughcolor="#ffedd5", activebackground=color_brand,
             showvalue=False, command=self._on_conf_change
         )
@@ -536,17 +703,17 @@ class ISLApp:
         self.conf_slider.pack(fill="x")
 
         # Hold frames slider
-        s_right = tk.Frame(sliders_card, bg=card_bg)
-        s_right.pack(side="right", fill="x", expand=True, padx=(0, 5))
+        self.s_right = tk.Frame(self.sliders_card, bg="#ffffff")
+        self.s_right.pack(side="right", fill="x", expand=True, padx=(0, 5))
 
         self.hold_val_lbl = tk.Label(
-            s_right, text="Hold Speed: 15 frames (~0.5s)", font=small_font, fg=text_secondary, bg=card_bg
+            self.s_right, text="Hold Speed: 15 frames (~0.5s)", font=self.font_small, fg="#4b5563", bg="#ffffff"
         )
         self.hold_val_lbl.pack(anchor="w")
 
         self.hold_slider = tk.Scale(
-            s_right, from_=8, to=30, orient="horizontal",
-            bg=card_bg, fg=text_primary, highlightthickness=0,
+            self.s_right, from_=8, to=30, orient="horizontal",
+            bg="#ffffff", fg="#111827", highlightthickness=0,
             troughcolor="#ffedd5", activebackground=color_brand,
             showvalue=False, command=self._on_hold_change
         )
@@ -555,114 +722,115 @@ class ISLApp:
 
         # Camera status & resolution footer
         self.cam_info_lbl = tk.Label(
-            cam_card, text="Camera: Connecting...", font=small_font, fg=text_muted, bg=card_bg
+            self.cam_card, text="Camera: Connecting...", font=self.font_small, fg="#6b7280", bg="#ffffff"
         )
         self.cam_info_lbl.pack(anchor="w", padx=5, pady=(4, 0))
 
         # ==================================================
         # RIGHT COLUMN: RECOGNITION & TEXT EDITING CONTROLS
         # ==================================================
-        right_col = tk.Frame(body, bg=bg_canvas, width=390)
-        right_col.pack(side="right", fill="both", expand=True)
-        right_col.pack_propagate(False)
+        self.right_col = tk.Frame(self.body, bg="#fafafa", width=420)
+        self.right_col.pack(side="right", fill="both", expand=True)
+        self.right_col.pack_propagate(False)
 
         # --------------------------------------------------
-        # CARD 1: CURRENT DETECTED SIGN (SE_PROJECT Hero Card style)
+        # CARD 1: CURRENT DETECTED SIGN
         # --------------------------------------------------
-        sign_card = tk.LabelFrame(
-            right_col, text="  Current Sign Detection  ",
-            font=heading_font, fg=text_primary, bg=card_bg,
+        self.sign_card = tk.LabelFrame(
+            self.right_col, text="  Current Sign Detection  ",
+            font=self.font_heading, fg="#111827", bg="#ffffff",
             padx=12, pady=8, bd=1, relief="solid"
         )
-        sign_card.pack(fill="x", pady=(0, 10))
+        self.sign_card.pack(fill="x", pady=(0, 10))
 
-        top_sign_row = tk.Frame(sign_card, bg=card_bg)
-        top_sign_row.pack(fill="x")
+        self.top_sign_row = tk.Frame(self.sign_card, bg="#ffffff")
+        self.top_sign_row.pack(fill="x")
 
-        # Big sign label in SE_PROJECT orange accent
+        # Big sign label
         self.sign_label = tk.Label(
-            top_sign_row,
+            self.top_sign_row,
             text="...",
-            font=("Space Grotesk" if "Space Grotesk" in font.families(self.root) else "Segoe UI", 42, "bold"),
-            bg=card_bg,
+            font=self.font_sign,
+            bg="#ffffff",
             fg=color_brand,
             width=3
         )
         self.sign_label.pack(side="left", padx=(5, 12))
 
-        sign_meta_col = tk.Frame(top_sign_row, bg=card_bg)
-        sign_meta_col.pack(side="left", fill="both", expand=True)
+        self.sign_meta_col = tk.Frame(self.top_sign_row, bg="#ffffff")
+        self.sign_meta_col.pack(side="left", fill="both", expand=True)
 
         self.confidence_label = tk.Label(
-            sign_meta_col,
+            self.sign_meta_col,
             text="Confidence: 0.0%",
-            font=label_font,
-            bg=card_bg,
-            fg=text_primary
+            font=self.font_label,
+            bg="#ffffff",
+            fg="#111827"
         )
         self.confidence_label.pack(anchor="w", pady=(4, 2))
 
         self.status_label = tk.Label(
-            sign_meta_col,
+            self.sign_meta_col,
             text="Status: Waiting for hand gestures...",
-            font=small_font,
-            bg=card_bg,
-            fg=text_muted
+            font=self.font_small,
+            bg="#ffffff",
+            fg="#6b7280"
         )
         self.status_label.pack(anchor="w", pady=(0, 2))
 
         # Stability hold progress bar
-        p_frame = tk.Frame(sign_card, bg=card_bg, pady=4)
-        p_frame.pack(fill="x")
+        self.p_frame = tk.Frame(self.sign_card, bg="#ffffff", pady=4)
+        self.p_frame.pack(fill="x")
 
-        tk.Label(
-            p_frame, text="Hold Stability Progress:", font=("Segoe UI", 7, "bold"), fg=text_secondary, bg=card_bg
-        ).pack(side="left", padx=(0, 6))
+        self.progress_lbl = tk.Label(
+            self.p_frame, text="Hold Stability Progress:", font=self.font_sub, fg="#4b5563", bg="#ffffff"
+        )
+        self.progress_lbl.pack(side="left", padx=(0, 6))
 
         self.progress_canvas = tk.Canvas(
-            p_frame, height=8, bg="#e5e7eb", highlightthickness=0
+            self.p_frame, height=8, bg="#e5e7eb", highlightthickness=0
         )
         self.progress_canvas.pack(side="left", fill="x", expand=True)
 
         # --------------------------------------------------
         # CARD 2: RECOGNIZED TEXT & EDITING CONTROLS
         # --------------------------------------------------
-        text_card = tk.LabelFrame(
-            right_col, text="  Recognized Sentence Buffer  ",
-            font=heading_font, fg=text_primary, bg=card_bg,
+        self.text_card = tk.LabelFrame(
+            self.right_col, text="  Recognized Sentence Buffer  ",
+            font=self.font_heading, fg="#111827", bg="#ffffff",
             padx=12, pady=10, bd=1, relief="solid"
         )
-        text_card.pack(fill="both", expand=True)
+        self.text_card.pack(fill="both", expand=True)
 
         # Sub-header with text length counter
-        text_hdr = tk.Frame(text_card, bg=card_bg)
-        text_hdr.pack(fill="x", pady=(0, 6))
+        self.text_hdr = tk.Frame(self.text_card, bg="#ffffff")
+        self.text_hdr.pack(fill="x", pady=(0, 6))
 
         self.text_stats_lbl = tk.Label(
-            text_hdr,
+            self.text_hdr,
             text="0 characters | 0 words",
-            font=small_font,
-            fg=text_secondary,
-            bg=card_bg
+            font=self.font_small,
+            fg="#4b5563",
+            bg="#ffffff"
         )
         self.text_stats_lbl.pack(side="left")
 
         self.notif_lbl = tk.Label(
-            text_hdr,
+            self.text_hdr,
             text="",
-            font=("Segoe UI", 8, "italic"),
+            font=self.font_small,
             fg=color_brand,
-            bg=card_bg
+            bg="#ffffff"
         )
         self.notif_lbl.pack(side="right")
 
-        # Interactive editable text box (Clean SaaS light background)
+        # Interactive editable text box
         self.text_display = tk.Text(
-            text_card,
-            font=text_font,
+            self.text_card,
+            font=self.font_text,
             bg="#fafafa",
-            fg=text_primary,
-            insertbackground=color_primary,
+            fg="#111827",
+            insertbackground="#000000",
             height=3,
             wrap="word",
             relief="solid",
@@ -673,11 +841,11 @@ class ISLApp:
         self.text_display.pack(fill="x", pady=(0, 8))
         self.text_display.bind("<KeyRelease>", self._on_text_widget_change)
 
-        # Helper for tactile SE_PROJECT styled buttons
+        # Helper for styled buttons
         def make_btn(parent, text, cmd, bg_col, hover_col, fg_col="white", is_bordered=False):
             b = tk.Button(
                 parent, text=text, command=cmd,
-                font=btn_font, bg=bg_col, fg=fg_col,
+                font=self.font_btn, bg=bg_col, fg=fg_col,
                 activebackground=hover_col, activeforeground=fg_col,
                 relief="solid" if is_bordered else "flat",
                 bd=1 if is_bordered else 0,
@@ -686,73 +854,67 @@ class ISLApp:
             return b
 
         # --------------------------------------------------
-        # TEXT ACTION BUTTONS (SE_PROJECT Layout)
+        # TEXT ACTION BUTTONS
         # --------------------------------------------------
+        self.r1 = tk.Frame(self.text_card, bg="#ffffff")
+        self.r1.pack(fill="x", pady=2)
 
-        # Row 1: Add Current Sign (Jet Black Primary CTA) & Add Space
-        r1 = tk.Frame(text_card, bg=card_bg)
-        r1.pack(fill="x", pady=2)
-
-        self.btn_add = make_btn(r1, "✓ ADD SIGN", self.add_letter, "#000000", "#1f2937", "#ffffff")
+        self.btn_add = make_btn(self.r1, "✓ ADD SIGN", self.add_letter, "#000000", "#1f2937", "#ffffff")
         self.btn_add.pack(side="left", fill="x", expand=True, padx=(0, 2))
 
-        self.btn_space = make_btn(r1, "⎵ SPACE", self.add_space, "#ffffff", "#f9fafb", "#374151", is_bordered=True)
+        self.btn_space = make_btn(self.r1, "⎵ SPACE", self.add_space, "#ffffff", "#f9fafb", "#374151", is_bordered=True)
         self.btn_space.pack(side="right", fill="x", expand=True, padx=(2, 0))
 
-        # Row 2: Delete Letter (Backspace) & Delete Word
-        r2 = tk.Frame(text_card, bg=card_bg)
-        r2.pack(fill="x", pady=2)
+        self.r2 = tk.Frame(self.text_card, bg="#ffffff")
+        self.r2.pack(fill="x", pady=2)
 
-        self.btn_backspace = make_btn(r2, "⌫ BACKSPACE", self.backspace, "#ffffff", "#f9fafb", "#374151", is_bordered=True)
+        self.btn_backspace = make_btn(self.r2, "⌫ BACKSPACE", self.backspace, "#ffffff", "#f9fafb", "#374151", is_bordered=True)
         self.btn_backspace.pack(side="left", fill="x", expand=True, padx=(0, 2))
 
-        self.btn_del_word = make_btn(r2, "🗑️ DELETE WORD", self.delete_word, "#fef2f2", "#fee2e2", "#dc2626", is_bordered=True)
+        self.btn_del_word = make_btn(self.r2, "🗑️ DELETE WORD", self.delete_word, "#fef2f2", "#fee2e2", "#dc2626", is_bordered=True)
         self.btn_del_word.pack(side="right", fill="x", expand=True, padx=(2, 0))
 
-        # Row 3: Clear All & Undo
-        r3 = tk.Frame(text_card, bg=card_bg)
-        r3.pack(fill="x", pady=2)
+        self.r3 = tk.Frame(self.text_card, bg="#ffffff")
+        self.r3.pack(fill="x", pady=2)
 
-        self.btn_clear = make_btn(r3, "✕ CLEAR ALL", self.clear_text, "#ef4444", "#dc2626", "#ffffff")
+        self.btn_clear = make_btn(self.r3, "✕ CLEAR ALL", self.clear_text, "#ef4444", "#dc2626", "#ffffff")
         self.btn_clear.pack(side="left", fill="x", expand=True, padx=(0, 2))
 
-        self.btn_undo = make_btn(r3, "↩ UNDO", self.undo_text, "#ffffff", "#f9fafb", "#374151", is_bordered=True)
+        self.btn_undo = make_btn(self.r3, "↩ UNDO", self.undo_text, "#ffffff", "#f9fafb", "#374151", is_bordered=True)
         self.btn_undo.pack(side="right", fill="x", expand=True, padx=(2, 0))
 
-        # Row 4: Copy to Clipboard & Save to File
-        r4 = tk.Frame(text_card, bg=card_bg)
-        r4.pack(fill="x", pady=2)
+        self.r4 = tk.Frame(self.text_card, bg="#ffffff")
+        self.r4.pack(fill="x", pady=2)
 
-        self.btn_copy = make_btn(r4, "📋 COPY TEXT", self.copy_to_clipboard, "#ffffff", "#f9fafb", "#374151", is_bordered=True)
+        self.btn_copy = make_btn(self.r4, "📋 COPY TEXT", self.copy_to_clipboard, "#ffffff", "#f9fafb", "#374151", is_bordered=True)
         self.btn_copy.pack(side="left", fill="x", expand=True, padx=(0, 2))
 
-        self.btn_save = make_btn(r4, "💾 SAVE TO FILE", self.save_to_file, "#ffffff", "#f9fafb", "#374151", is_bordered=True)
+        self.btn_save = make_btn(self.r4, "💾 SAVE TO FILE", self.save_to_file, "#ffffff", "#f9fafb", "#374151", is_bordered=True)
         self.btn_save.pack(side="right", fill="x", expand=True, padx=(2, 0))
 
-        # Row 5: Speak Text (Brand Orange CTA)
-        self.btn_speak = make_btn(text_card, "🔊 SPEAK SENTENCE (TTS)", self.speak_text, color_brand, "#e05e00", "#ffffff")
+        self.btn_speak = make_btn(self.text_card, "🔊 SPEAK SENTENCE (TTS)", self.speak_text, color_brand, "#e05e00", "#ffffff")
         self.btn_speak.pack(fill="x", pady=3)
 
-        # Row 6: Sign Reference Guide & Exit
-        r6 = tk.Frame(text_card, bg=card_bg)
-        r6.pack(fill="x", pady=2)
+        self.r6 = tk.Frame(self.text_card, bg="#ffffff")
+        self.r6.pack(fill="x", pady=2)
 
-        self.btn_guide = make_btn(r6, "📖 SIGN GUIDE", self.show_sign_guide, "#ffffff", "#f3f4f6", "#111827", is_bordered=True)
+        self.btn_guide = make_btn(self.r6, "📖 SIGN GUIDE", self.show_sign_guide, "#ffffff", "#f3f4f6", "#111827", is_bordered=True)
         self.btn_guide.pack(side="left", fill="x", expand=True, padx=(0, 2))
 
-        self.btn_exit = make_btn(r6, "✕ EXIT", self.quit_app, "#f3f4f6", "#e5e7eb", "#4b5563", is_bordered=True)
+        self.btn_exit = make_btn(self.r6, "✕ EXIT", self.quit_app, "#f3f4f6", "#e5e7eb", "#4b5563", is_bordered=True)
         self.btn_exit.pack(side="right", fill="x", expand=True, padx=(2, 0))
 
         # --------------------------------------------------
         # FOOTER LEGEND
         # --------------------------------------------------
-        footer = tk.Frame(right_col, bg=bg_canvas, pady=4)
-        footer.pack(fill="x")
+        self.footer = tk.Frame(self.right_col, bg="#fafafa", pady=4)
+        self.footer.pack(fill="x")
 
-        shortcuts_txt = "Shortcuts: Space=Add | -=Space | Backspace=Del Char | Ctrl+Del=Clear | S=Speak | P=Pause | Esc=Exit"
-        tk.Label(
-            footer, text=shortcuts_txt, font=("Segoe UI", 7), fg=text_muted, bg=bg_canvas, wraplength=380, justify="left"
-        ).pack(anchor="w")
+        shortcuts_txt = "Shortcuts: Space=Add | -=Space | Backspace=Del Char | Ctrl+Del=Clear | S=Speak | P=Pause | Esc=Exit\nAccessibility: Ctrl+D=Dark | Ctrl+I=Invert | Ctrl+H=Contrast | Ctrl+L=Cursor"
+        self.shortcuts_lbl = tk.Label(
+            self.footer, text=shortcuts_txt, font=self.font_sub, fg="#6b7280", bg="#fafafa", wraplength=410, justify="left"
+        )
+        self.shortcuts_lbl.pack(anchor="w")
 
         # --------------------------------------------------
         # GLOBAL KEYBOARD BINDINGS
@@ -767,7 +929,388 @@ class ISLApp:
         self.root.bind("s", lambda e: self._on_s_key(e))
         self.root.bind("p", lambda e: self._on_p_key(e))
         self.root.bind("<Escape>", lambda e: self.quit_app())
+
+        # Accessibility Keyboard Shortcuts
+        self.root.bind("<Control-d>", lambda e: self._toggle_a11y_dark())
+        self.root.bind("<Control-D>", lambda e: self._toggle_a11y_dark())
+        self.root.bind("<Control-i>", lambda e: self._toggle_a11y_invert())
+        self.root.bind("<Control-I>", lambda e: self._toggle_a11y_invert())
+        self.root.bind("<Control-h>", lambda e: self._toggle_a11y_contrast())
+        self.root.bind("<Control-H>", lambda e: self._toggle_a11y_contrast())
+        self.root.bind("<Control-l>", lambda e: self._toggle_a11y_cursor())
+        self.root.bind("<Control-L>", lambda e: self._toggle_a11y_cursor())
+
         self.root.protocol("WM_DELETE_WINDOW", self.quit_app)
+
+        # Apply initial accessibility states
+        self.apply_text_size()
+        self.apply_theme()
+        self._apply_cursor()
+
+    # ==================================================
+    # ACCESSIBILITY METHODS (DARK MODE, INVERT, CONTRAST, CURSOR, TEXT SIZE)
+    # ==================================================
+
+    def _toggle_a11y_dark(self):
+        self.a11y_dark_mode.set(not self.a11y_dark_mode.get())
+        self._on_a11y_change()
+
+    def _toggle_a11y_invert(self):
+        self.a11y_invert_colors.set(not self.a11y_invert_colors.get())
+        self._on_a11y_change()
+
+    def _toggle_a11y_contrast(self):
+        self.a11y_high_contrast.set(not self.a11y_high_contrast.get())
+        self._on_a11y_change()
+
+    def _toggle_a11y_cursor(self):
+        self.a11y_large_cursor.set(not self.a11y_large_cursor.get())
+        self._on_cursor_change()
+
+    def _on_a11y_change(self):
+        """Handler when theme toggles change."""
+        self.apply_theme()
+        self._save_a11y_settings()
+        self._set_notification("Accessibility theme updated")
+
+    def _on_cursor_change(self):
+        """Handler when large cursor toggle changes."""
+        self._apply_cursor()
+        self._save_a11y_settings()
+        msg = "Large cursor enabled" if self.a11y_large_cursor.get() else "Default cursor restored"
+        self._set_notification(msg)
+
+    def _on_text_size_change(self):
+        """Handler when text size changes."""
+        self.apply_text_size()
+        self._save_a11y_settings()
+        self._set_notification(f"Text size: {self.a11y_text_size.get()}")
+
+    def _load_a11y_settings(self):
+        """Load accessibility preferences from local JSON file."""
+        try:
+            if os.path.exists(A11Y_CONFIG_PATH):
+                with open(A11Y_CONFIG_PATH, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    self.a11y_dark_mode.set(bool(data.get("dark_mode", False)))
+                    self.a11y_invert_colors.set(bool(data.get("invert_colors", False)))
+                    self.a11y_large_cursor.set(bool(data.get("large_cursor", False)))
+                    self.a11y_high_contrast.set(bool(data.get("high_contrast", False)))
+                    self.a11y_text_size.set(str(data.get("text_size", "Default")))
+        except Exception as e:
+            print(f"Notice: Could not load accessibility settings: {e}")
+
+    def _save_a11y_settings(self):
+        """Save accessibility preferences to local JSON file."""
+        try:
+            data = {
+                "dark_mode": self.a11y_dark_mode.get(),
+                "invert_colors": self.a11y_invert_colors.get(),
+                "large_cursor": self.a11y_large_cursor.get(),
+                "high_contrast": self.a11y_high_contrast.get(),
+                "text_size": self.a11y_text_size.get()
+            }
+            with open(A11Y_CONFIG_PATH, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            print(f"Notice: Could not save accessibility settings: {e}")
+
+    def _get_theme_palette(self):
+        """Calculate color tokens and border specifications based on active accessibility states."""
+        dark = self.a11y_dark_mode.get()
+        invert = self.a11y_invert_colors.get()
+        high_contrast = self.a11y_high_contrast.get()
+
+        # Invert colors flips the effective lightness/darkness of the UI
+        effective_dark = (dark != invert)
+
+        if high_contrast:
+            if effective_dark:
+                # High Contrast Dark
+                return {
+                    "bg_canvas": "#000000",
+                    "card_bg": "#000000",
+                    "border": "#ffffff",
+                    "border_width": 2,
+                    "text_primary": "#ffffff",
+                    "text_secondary": "#ffff00",
+                    "text_muted": "#00ffff",
+                    "accent": "#ffff00",
+                    "accent_text": "#000000",
+                    "input_bg": "#000000",
+                    "input_fg": "#ffff00",
+                    "btn_bg": "#000000",
+                    "btn_fg": "#ffffff",
+                    "btn_border": "#ffffff",
+                    "btn_active_bg": "#333333",
+                    "btn_primary_bg": "#ffff00",
+                    "btn_primary_fg": "#000000",
+                    "btn_danger_bg": "#ff0000",
+                    "btn_danger_fg": "#ffffff",
+                    "slider_trough": "#333333",
+                    "slider_active": "#ffff00",
+                }
+            else:
+                # High Contrast Light
+                return {
+                    "bg_canvas": "#ffffff",
+                    "card_bg": "#ffffff",
+                    "border": "#000000",
+                    "border_width": 2,
+                    "text_primary": "#000000",
+                    "text_secondary": "#000000",
+                    "text_muted": "#1a1a1a",
+                    "accent": "#000000",
+                    "accent_text": "#ffffff",
+                    "input_bg": "#ffffff",
+                    "input_fg": "#000000",
+                    "btn_bg": "#ffffff",
+                    "btn_fg": "#000000",
+                    "btn_border": "#000000",
+                    "btn_active_bg": "#cccccc",
+                    "btn_primary_bg": "#000000",
+                    "btn_primary_fg": "#ffffff",
+                    "btn_danger_bg": "#000000",
+                    "btn_danger_fg": "#ffffff",
+                    "slider_trough": "#cccccc",
+                    "slider_active": "#000000",
+                }
+        elif effective_dark:
+            # Standard Dark Mode
+            return {
+                "bg_canvas": "#18181b",
+                "card_bg": "#27272a",
+                "border": "#3f3f46",
+                "border_width": 1,
+                "text_primary": "#f4f4f5",
+                "text_secondary": "#d4d4d8",
+                "text_muted": "#a1a1aa",
+                "accent": "#fb923c",
+                "accent_text": "#18181b",
+                "input_bg": "#1e1e24",
+                "input_fg": "#f4f4f5",
+                "btn_bg": "#3f3f46",
+                "btn_fg": "#f4f4f5",
+                "btn_border": "#52525b",
+                "btn_active_bg": "#52525b",
+                "btn_primary_bg": "#ea580c",
+                "btn_primary_fg": "#ffffff",
+                "btn_danger_bg": "#dc2626",
+                "btn_danger_fg": "#ffffff",
+                "slider_trough": "#3f3f46",
+                "slider_active": "#fb923c",
+            }
+        else:
+            # Standard Light Mode
+            return {
+                "bg_canvas": "#fafafa",
+                "card_bg": "#ffffff",
+                "border": "#e2e8f0",
+                "border_width": 1,
+                "text_primary": "#111827",
+                "text_secondary": "#4b5563",
+                "text_muted": "#6b7280",
+                "accent": "#ff6b00",
+                "accent_text": "#ffffff",
+                "input_bg": "#fafafa",
+                "input_fg": "#111827",
+                "btn_bg": "#ffffff",
+                "btn_fg": "#374151",
+                "btn_border": "#d1d5db",
+                "btn_active_bg": "#f9fafb",
+                "btn_primary_bg": "#000000",
+                "btn_primary_fg": "#ffffff",
+                "btn_danger_bg": "#ef4444",
+                "btn_danger_fg": "#ffffff",
+                "slider_trough": "#ffedd5",
+                "slider_active": "#ff6b00",
+            }
+
+    def apply_text_size(self):
+        """Update font sizes dynamically across the GUI for Small, Default, and Large modes."""
+        size_mode = self.a11y_text_size.get()
+        if size_mode == "Small":
+            scales = {
+                "title": 11, "heading": 10, "label": 9,
+                "text": 11, "btn": 8, "small": 7, "sub": 6, "sign": 34
+            }
+        elif size_mode == "Large":
+            scales = {
+                "title": 15, "heading": 13, "label": 12,
+                "text": 15, "btn": 11, "small": 10, "sub": 9, "sign": 48
+            }
+        else:  # Default
+            scales = {
+                "title": 13, "heading": 11, "label": 10,
+                "text": 13, "btn": 9, "small": 8, "sub": 7, "sign": 42
+            }
+
+        self.font_title.configure(size=scales["title"])
+        self.font_heading.configure(size=scales["heading"])
+        self.font_label.configure(size=scales["label"])
+        self.font_text.configure(size=scales["text"])
+        self.font_btn.configure(size=scales["btn"])
+        self.font_small.configure(size=scales["small"])
+        self.font_sub.configure(size=scales["sub"])
+        self.font_sign.configure(size=scales["sign"])
+
+    def _apply_cursor(self):
+        """Update mouse cursor size and visibility across application."""
+        use_large = self.a11y_large_cursor.get()
+        c_main = "crosshair" if use_large else ""
+        c_btn = "crosshair" if use_large else "hand2"
+        c_txt = "crosshair" if use_large else "xterm"
+
+        self.root.configure(cursor=c_main)
+        self._set_widget_cursors(self.root, c_main, c_btn, c_txt)
+
+    def _set_widget_cursors(self, widget, c_main, c_btn, c_txt):
+        """Recursively apply appropriate cursor to all child widgets."""
+        for child in widget.winfo_children():
+            try:
+                if isinstance(child, (tk.Button, tk.Checkbutton, tk.Radiobutton)):
+                    child.configure(cursor=c_btn)
+                elif isinstance(child, (tk.Text, tk.Entry)):
+                    child.configure(cursor=c_txt)
+                else:
+                    child.configure(cursor=c_main)
+            except Exception:
+                pass
+            self._set_widget_cursors(child, c_main, c_btn, c_txt)
+
+    def apply_theme(self):
+        """Apply active theme (Dark Mode, Invert Colors, High Contrast) dynamically across GUI."""
+        p = self._get_theme_palette()
+        bw = p["border_width"]
+        bcol = p["border"]
+
+        # Window root
+        self.root.configure(bg=p["bg_canvas"])
+
+        # Header
+        self.header_frame.configure(bg=p["card_bg"], highlightbackground=bcol, highlightthickness=bw)
+        self.title_lbl.configure(bg=p["card_bg"], fg=p["text_primary"])
+        self.cam_sel_frame.configure(bg=p["card_bg"])
+        self.cam_sel_lbl.configure(bg=p["card_bg"], fg=p["text_secondary"])
+        self.btn_rescan_cam.configure(
+            bg=p["btn_bg"], fg=p["text_primary"],
+            activebackground=p["btn_active_bg"], activeforeground=p["text_primary"],
+            highlightbackground=bcol, highlightthickness=bw
+        )
+
+        # Accessibility Bar
+        self.a11y_bar.configure(bg=p["card_bg"], highlightbackground=bcol, highlightthickness=bw)
+        self.a11y_lbl.configure(bg=p["card_bg"], fg=p["text_primary"])
+        for cb in [self.cb_dark, self.cb_invert, self.cb_contrast, self.cb_cursor]:
+            cb.configure(
+                bg=p["card_bg"], fg=p["text_primary"],
+                selectcolor=p["input_bg"],
+                activebackground=p["card_bg"], activeforeground=p["accent"]
+            )
+        self.a11y_sep_lbl.configure(bg=p["card_bg"], fg=p["text_muted"])
+        for rb in [self.rb_small, self.rb_default, self.rb_large]:
+            rb.configure(
+                bg=p["card_bg"], fg=p["text_primary"],
+                selectcolor=p["input_bg"],
+                activebackground=p["card_bg"], activeforeground=p["accent"]
+            )
+
+        # Body & Columns
+        self.body.configure(bg=p["bg_canvas"])
+        self.left_col.configure(bg=p["bg_canvas"])
+        self.right_col.configure(bg=p["bg_canvas"])
+
+        # Cam Card
+        self.cam_card.configure(
+            bg=p["card_bg"], fg=p["text_primary"],
+            highlightbackground=bcol, highlightthickness=bw
+        )
+        self.opts_frame.configure(bg=p["card_bg"])
+        for cb in [self.cb_mirror, self.cb_landmarks, self.cb_auto]:
+            cb.configure(
+                bg=p["card_bg"], fg=p["text_primary"],
+                selectcolor=p["input_bg"],
+                activebackground=p["card_bg"], activeforeground=p["accent"]
+            )
+        self.btn_pause.configure(
+            bg=p["btn_bg"], fg=p["text_primary"],
+            activebackground=p["btn_active_bg"], activeforeground=p["text_primary"],
+            highlightbackground=bcol, highlightthickness=bw
+        )
+
+        # Sliders
+        self.sliders_card.configure(bg=p["card_bg"])
+        self.s_left.configure(bg=p["card_bg"])
+        self.s_right.configure(bg=p["card_bg"])
+        self.conf_val_lbl.configure(bg=p["card_bg"], fg=p["text_secondary"])
+        self.conf_slider.configure(
+            bg=p["card_bg"], fg=p["text_primary"],
+            troughcolor=p["slider_trough"], activebackground=p["slider_active"]
+        )
+        self.hold_val_lbl.configure(bg=p["card_bg"], fg=p["text_secondary"])
+        self.hold_slider.configure(
+            bg=p["card_bg"], fg=p["text_primary"],
+            troughcolor=p["slider_trough"], activebackground=p["slider_active"]
+        )
+        self.cam_info_lbl.configure(bg=p["card_bg"], fg=p["text_muted"])
+
+        # Sign Detection Card
+        self.sign_card.configure(
+            bg=p["card_bg"], fg=p["text_primary"],
+            highlightbackground=bcol, highlightthickness=bw
+        )
+        self.top_sign_row.configure(bg=p["card_bg"])
+        self.sign_label.configure(bg=p["card_bg"], fg=p["accent"])
+        self.sign_meta_col.configure(bg=p["card_bg"])
+        self.confidence_label.configure(bg=p["card_bg"], fg=p["text_primary"])
+        self.status_label.configure(bg=p["card_bg"], fg=p["text_muted"])
+        self.p_frame.configure(bg=p["card_bg"])
+        self.progress_lbl.configure(bg=p["card_bg"], fg=p["text_secondary"])
+        self.progress_canvas.configure(bg=p["slider_trough"])
+
+        # Text Card
+        self.text_card.configure(
+            bg=p["card_bg"], fg=p["text_primary"],
+            highlightbackground=bcol, highlightthickness=bw
+        )
+        self.text_hdr.configure(bg=p["card_bg"])
+        self.text_stats_lbl.configure(bg=p["card_bg"], fg=p["text_secondary"])
+        self.notif_lbl.configure(bg=p["card_bg"], fg=p["accent"])
+        self.text_display.configure(
+            bg=p["input_bg"], fg=p["input_fg"],
+            insertbackground=p["text_primary"],
+            highlightbackground=bcol, highlightthickness=bw
+        )
+
+        # Button Rows
+        for r in [self.r1, self.r2, self.r3, self.r4, self.r6]:
+            r.configure(bg=p["card_bg"])
+
+        # Action Buttons
+        if self.a11y_high_contrast.get():
+            for b in [self.btn_space, self.btn_backspace, self.btn_undo, self.btn_copy, self.btn_save, self.btn_guide, self.btn_exit]:
+                b.configure(bg=p["btn_bg"], fg=p["btn_fg"], activebackground=p["btn_active_bg"], activeforeground=p["btn_fg"], bd=bw, relief="solid")
+            self.btn_add.configure(bg=p["btn_primary_bg"], fg=p["btn_primary_fg"], activebackground=p["btn_active_bg"], activeforeground=p["btn_primary_fg"], bd=bw, relief="solid")
+            self.btn_del_word.configure(bg=p["btn_bg"], fg="#ff4444" if p["bg_canvas"] == "#000000" else "#cc0000", activebackground=p["btn_active_bg"], bd=bw, relief="solid")
+            self.btn_clear.configure(bg=p["btn_danger_bg"], fg=p["btn_danger_fg"], activebackground=p["btn_active_bg"], activeforeground=p["btn_danger_fg"], bd=bw, relief="solid")
+            self.btn_speak.configure(bg=p["btn_primary_bg"], fg=p["btn_primary_fg"], activebackground=p["btn_active_bg"], activeforeground=p["btn_primary_fg"], bd=bw, relief="solid")
+        else:
+            self.btn_add.configure(bg=p["btn_primary_bg"], fg=p["btn_primary_fg"], activebackground=p["btn_active_bg"], activeforeground=p["btn_primary_fg"], bd=0, relief="flat")
+            self.btn_speak.configure(bg=p["accent"], fg=p["accent_text"], activebackground=p["btn_active_bg"], activeforeground=p["accent_text"], bd=0, relief="flat")
+            self.btn_clear.configure(bg=p["btn_danger_bg"], fg=p["btn_danger_fg"], activebackground=p["btn_active_bg"], activeforeground=p["btn_danger_fg"], bd=0, relief="flat")
+            is_dark_bg = p["bg_canvas"] == "#18181b"
+            self.btn_del_word.configure(
+                bg="#3d1f1f" if is_dark_bg else "#fef2f2",
+                fg="#f87171" if is_dark_bg else "#dc2626",
+                activebackground=p["btn_active_bg"],
+                relief="solid", bd=1
+            )
+            for b in [self.btn_space, self.btn_backspace, self.btn_undo, self.btn_copy, self.btn_save, self.btn_guide, self.btn_exit]:
+                b.configure(bg=p["btn_bg"], fg=p["btn_fg"], activebackground=p["btn_active_bg"], activeforeground=p["btn_fg"], relief="solid", bd=1)
+
+        # Footer
+        self.footer.configure(bg=p["bg_canvas"])
+        self.shortcuts_lbl.configure(bg=p["bg_canvas"], fg=p["text_muted"])
 
     # ==================================================
     # KEYBOARD & SLIDER HANDLERS
@@ -824,8 +1367,14 @@ class ISLApp:
 
     def _set_notification(self, msg, duration_ms=2500):
         """Display a temporary toast notification in the UI."""
+        prev_id = getattr(self, "_notif_after_id", None)
+        if prev_id is not None:
+            try:
+                self.root.after_cancel(prev_id)
+            except Exception:
+                pass
         self.notif_lbl.config(text=msg)
-        self.root.after(duration_ms, lambda: self.notif_lbl.config(text=""))
+        self._notif_after_id = self.root.after(duration_ms, lambda: self.notif_lbl.config(text=""))
 
     def _update_stats_label(self):
         chars = len(self.text_buffer)
@@ -943,53 +1492,58 @@ class ISLApp:
             )
             return
 
-        self._set_notification("🔊 Speaking...")
+        if self.speech.is_speaking():
+            self._set_notification("🔊 Queued for speech...")
+        else:
+            self._set_notification("🔊 Speaking...")
         self.speech.speak(self.text_buffer)
 
     def toggle_pause(self):
         """Pause or resume sign detection."""
         is_paused = not self.var_paused.get()
         self.var_paused.set(is_paused)
+        p = self._get_theme_palette()
         if is_paused:
             self.btn_pause.config(text="▶ Resume Detection", bg="#15803d")
             self.status_label.config(text="Status: Detection Paused", fg="#ffd600")
-            self.sign_label.config(text="PAUSED", font=("Segoe UI", 16, "bold"), fg="#ffd600")
+            self.sign_label.config(text="PAUSED", font=self.font_heading, fg="#ffd600")
             self._set_notification("Detection paused")
         else:
-            self.btn_pause.config(text="⏸ Pause Detection", bg="#2c3e50")
-            self.sign_label.config(font=("Segoe UI", 42, "bold"))
+            self.btn_pause.config(text="⏸ Pause Detection", bg=p["btn_bg"], fg=p["text_primary"])
+            self.sign_label.config(font=self.font_sign, fg=p["accent"])
             self._set_notification("Detection resumed")
 
     def show_sign_guide(self):
-        """Display an interactive modal showing supported alphabet gestures."""
+        """Display an interactive modal showing supported alphabet gestures with accessibility support."""
         guide_win = tk.Toplevel(self.root)
         guide_win.title("Indian Sign Language - Gesture Reference Guide")
-        guide_win.configure(bg="#fafafa")
-        guide_win.geometry("540x530")
+        p = self._get_theme_palette()
+        guide_win.configure(bg=p["bg_canvas"])
+        guide_win.geometry("560x540")
         guide_win.resizable(False, False)
         guide_win.lift()
         guide_win.grab_set()
 
-        hdr = tk.Frame(guide_win, bg="#ffffff", padx=16, pady=12, bd=1, relief="solid")
+        hdr = tk.Frame(guide_win, bg=p["card_bg"], padx=16, pady=12, bd=p["border_width"], relief="solid")
         hdr.pack(fill="x")
         tk.Label(
             hdr, text="ISL Alphabet & Gesture Reference",
-            font=("Space Grotesk" if "Space Grotesk" in font.families(self.root) else "Segoe UI", 13, "bold"),
-            fg="#111827", bg="#ffffff"
+            font=self.font_heading,
+            fg=p["text_primary"], bg=p["card_bg"]
         ).pack(anchor="w")
         tk.Label(
             hdr, text="Standardized Indian Sign Language alphabet conventions (A – Z)",
-            font=("Segoe UI", 9), fg="#6b7280", bg="#ffffff"
+            font=self.font_small, fg=p["text_secondary"], bg=p["card_bg"]
         ).pack(anchor="w", pady=(2, 0))
 
-        content = tk.Frame(guide_win, bg="#fafafa", padx=15, pady=12)
+        content = tk.Frame(guide_win, bg=p["bg_canvas"], padx=15, pady=12)
         content.pack(fill="both", expand=True)
 
         # Alphabet grid
         grid_frame = tk.LabelFrame(
             content, text="  Supported Letters (26 Classes)  ",
-            font=("Segoe UI", 10, "bold"), fg="#111827", bg="#ffffff",
-            padx=10, pady=10, bd=1, relief="solid"
+            font=self.font_heading, fg=p["text_primary"], bg=p["card_bg"],
+            padx=10, pady=10, bd=p["border_width"], relief="solid"
         )
         grid_frame.pack(fill="x", pady=(0, 10))
 
@@ -998,16 +1552,16 @@ class ISLApp:
             r = idx // cols
             c = idx % cols
             btn = tk.Label(
-                grid_frame, text=lbl, font=("Segoe UI", 11, "bold"),
-                bg="#fff0e6", fg="#ff6b00", width=4, height=1, relief="solid", bd=1
+                grid_frame, text=lbl, font=self.font_label,
+                bg=p["input_bg"], fg=p["accent"], width=4, height=1, relief="solid", bd=1
             )
             btn.grid(row=r, column=c, padx=3, pady=3)
 
         # Guidelines card
         tips_frame = tk.LabelFrame(
             content, text="  Signing Best Practices  ",
-            font=("Segoe UI", 10, "bold"), fg="#111827", bg="#ffffff",
-            padx=12, pady=8, bd=1, relief="solid"
+            font=self.font_heading, fg=p["text_primary"], bg=p["card_bg"],
+            padx=12, pady=8, bd=p["border_width"], relief="solid"
         )
         tips_frame.pack(fill="both", expand=True)
 
@@ -1020,13 +1574,14 @@ class ISLApp:
         ]
         for t in tips:
             tk.Label(
-                tips_frame, text=t, font=("Segoe UI", 8), fg="#4b5563", bg="#ffffff", anchor="w"
+                tips_frame, text=t, font=self.font_small, fg=p["text_secondary"], bg=p["card_bg"], anchor="w"
             ).pack(fill="x", pady=2)
 
         close_btn = tk.Button(
-            content, text="Close Guide", font=("Segoe UI", 9, "bold"),
-            bg="#000000", fg="#ffffff", activebackground="#1f2937",
-            relief="flat", padx=16, pady=5, cursor="hand2",
+            content, text="Close Guide", font=self.font_btn,
+            bg=p["btn_primary_bg"], fg=p["btn_primary_fg"], activebackground=p["btn_active_bg"],
+            relief="solid" if p["border_width"] > 1 else "flat", bd=p["border_width"] if p["border_width"] > 1 else 0,
+            padx=16, pady=5, cursor="hand2",
             command=guide_win.destroy
         )
         close_btn.pack(pady=(10, 0))
@@ -1239,13 +1794,15 @@ class ISLApp:
                 self.cooldown_counter = self.COOLDOWN_FRAMES
 
     def _update_gui_feed(self, frame, is_covered):
-        """Render overlay graphics and update Tkinter camera canvas."""
+        """Render overlay graphics and update Tkinter camera canvas with accessibility support."""
         # Visual overlay tags on OpenCV frame
         fps_str = f"{self.current_fps:.1f} FPS"
         cv2.putText(
             frame, fps_str, (15, 30),
             cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 0), 2
         )
+
+        p = self._get_theme_palette()
 
         if is_covered:
             cv2.putText(
@@ -1262,22 +1819,34 @@ class ISLApp:
             # Update labels
             if not self.var_paused.get():
                 self.sign_label.config(text=self.predicted_label)
-                if self.hand_detected:
-                    self.sign_label.config(fg="#ff6b00")
-                    hands_txt = f"✋ {self.num_hands_detected} Hand{'s' if self.num_hands_detected > 1 else ''} Detected"
-                    self.status_label.config(text=f"Status: {hands_txt}", fg="#10b981")
-                else:
-                    self.sign_label.config(fg="#9ca3af")
-                    self.status_label.config(text="Status: Show your hand", fg="#6b7280")
+                if self.a11y_high_contrast.get():
+                    if self.hand_detected:
+                        self.sign_label.config(fg=p["accent"])
+                        hands_txt = f"✋ {self.num_hands_detected} Hand{'s' if self.num_hands_detected > 1 else ''} Detected"
+                        self.status_label.config(text=f"Status: {hands_txt}", fg=p["text_secondary"])
+                    else:
+                        self.sign_label.config(fg=p["text_muted"])
+                        self.status_label.config(text="Status: Show your hand", fg=p["text_muted"])
 
-                conf_percent = self.confidence * 100.0
-                self.confidence_label.config(text=f"Confidence: {conf_percent:.1f}%")
-                if conf_percent >= 85.0:
-                    self.confidence_label.config(fg="#10b981")
-                elif conf_percent >= 70.0:
-                    self.confidence_label.config(fg="#ff6b00")
+                    conf_percent = self.confidence * 100.0
+                    self.confidence_label.config(text=f"Confidence: {conf_percent:.1f}%", fg=p["text_primary"])
                 else:
-                    self.confidence_label.config(fg="#ef4444")
+                    if self.hand_detected:
+                        self.sign_label.config(fg=p["accent"])
+                        hands_txt = f"✋ {self.num_hands_detected} Hand{'s' if self.num_hands_detected > 1 else ''} Detected"
+                        self.status_label.config(text=f"Status: {hands_txt}", fg="#10b981")
+                    else:
+                        self.sign_label.config(fg=p["text_muted"])
+                        self.status_label.config(text="Status: Show your hand", fg=p["text_secondary"])
+
+                    conf_percent = self.confidence * 100.0
+                    self.confidence_label.config(text=f"Confidence: {conf_percent:.1f}%")
+                    if conf_percent >= 85.0:
+                        self.confidence_label.config(fg="#10b981")
+                    elif conf_percent >= 70.0:
+                        self.confidence_label.config(fg=p["accent"])
+                    else:
+                        self.confidence_label.config(fg="#ef4444")
 
         # Update hold progress canvas
         self.progress_canvas.delete("all")
@@ -1287,12 +1856,15 @@ class ISLApp:
         if canvas_width > 1 and self.stable_count > 0 and not self.need_change_before_repeat:
             prog = min(self.stable_count / max(target_hold, 1), 1.0)
             fill_w = int(canvas_width * prog)
+            bar_fill = p["accent"]
             self.progress_canvas.create_rectangle(
-                0, 0, fill_w, 8, fill="#ff6b00", outline=""
+                0, 0, fill_w, 8, fill=bar_fill, outline=""
             )
 
-        # Convert and blit frame to Tkinter
+        # Convert and blit frame to Tkinter (Invert only display copy if requested)
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        if self.a11y_invert_colors.get():
+            rgb = cv2.bitwise_not(rgb)
         img = Image.fromarray(rgb)
         img = img.resize((640, 480))
         imgtk = ImageTk.PhotoImage(image=img)
@@ -1307,6 +1879,8 @@ class ISLApp:
         """Gracefully terminate application."""
         print("Closing application...")
         self.running = False
+        if hasattr(self, "speech"):
+            self.speech.stop()
         if self.camera:
             self.camera.release()
         self.hand_detector.close()
